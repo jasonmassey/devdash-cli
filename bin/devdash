@@ -61,6 +61,54 @@ dd_api() {
     "$url" "$@"
 }
 
+# Resolve a bead ID: handles dev-dash-* local IDs and UUID prefixes
+# Usage: uuid=$(dd_resolve_id "$bead_id" "$project_id")
+dd_resolve_id() {
+  local bead_id="$1" pid="$2"
+
+  # dev-dash-* local IDs — resolve via localBeadId field
+  if [[ "$bead_id" == dev-dash-* ]]; then
+    local all_beads
+    all_beads=$(dd_api GET "/beads?projectId=${pid}")
+    local uuid
+    uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
+    if [ -z "$uuid" ]; then
+      echo "Bead not found: $bead_id" >&2
+      return 1
+    fi
+    echo "$uuid"
+    return
+  fi
+
+  # Full UUID (36 chars with dashes) — use directly
+  if [[ ${#bead_id} -eq 36 && "$bead_id" == *-*-*-*-* ]]; then
+    echo "$bead_id"
+    return
+  fi
+
+  # Short prefix — fetch all beads and match
+  local all_beads
+  all_beads=$(dd_api GET "/beads?projectId=${pid}")
+  local matches
+  matches=$(echo "$all_beads" | jq -r "[.[] | select(.id | startswith(\"$bead_id\"))] | .[].id")
+
+  if [ -z "$matches" ]; then
+    echo "Bead not found matching prefix: $bead_id" >&2
+    return 1
+  fi
+
+  local count
+  count=$(echo "$matches" | wc -l | tr -d ' ')
+
+  if [ "$count" -gt 1 ]; then
+    echo "Ambiguous prefix '$bead_id' matches $count beads:" >&2
+    echo "$matches" | head -5 >&2
+    return 1
+  fi
+
+  echo "$matches"
+}
+
 # ── Detect command name ──────────────────────────────────────────
 # If user has 'dd' aliased to devdash, use 'dd' in output; otherwise 'devdash'
 dd_cmd_name() {
@@ -219,23 +267,13 @@ dd_show() {
     echo "Usage: devdash show <bead-id>" >&2
     exit 1
   fi
-  local bead_id="$1"
   local pid
   pid=$(dd_project_id)
+  local uuid
+  uuid=$(dd_resolve_id "$1" "$pid") || exit 1
 
-  # If it's a local bead ID (dev-dash-*), find the UUID first
   local bead
-  if [[ "$bead_id" == dev-dash-* ]]; then
-    local all_beads
-    all_beads=$(dd_api GET "/beads?projectId=${pid}")
-    bead=$(echo "$all_beads" | jq ".[] | select(.localBeadId == \"$bead_id\")")
-    if [ -z "$bead" ] || [ "$bead" = "null" ]; then
-      echo "Bead not found: $bead_id" >&2
-      exit 1
-    fi
-  else
-    bead=$(dd_api GET "/beads/${bead_id}?projectId=${pid}")
-  fi
+  bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
 
   echo "$bead" | jq '{
     id: .id,
@@ -301,18 +339,8 @@ dd_update() {
   shift
   local pid
   pid=$(dd_project_id)
-
-  # Resolve local bead ID to UUID
-  local uuid="$bead_id"
-  if [[ "$bead_id" == dev-dash-* ]]; then
-    local all_beads
-    all_beads=$(dd_api GET "/beads?projectId=${pid}")
-    uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
-    if [ -z "$uuid" ]; then
-      echo "Bead not found: $bead_id" >&2
-      exit 1
-    fi
-  fi
+  local uuid
+  uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
 
   local body
   body=$(jq -n --arg pid "$pid" '{projectId: $pid}')
@@ -338,16 +366,8 @@ dd_close() {
   pid=$(dd_project_id)
 
   for bead_id in "$@"; do
-    local uuid="$bead_id"
-    if [[ "$bead_id" == dev-dash-* ]]; then
-      local all_beads
-      all_beads=$(dd_api GET "/beads?projectId=${pid}")
-      uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
-      if [ -z "$uuid" ]; then
-        echo "Bead not found: $bead_id" >&2
-        continue
-      fi
-    fi
+    local uuid
+    uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
     dd_api PATCH "/beads/${uuid}" -d "{\"projectId\": \"${pid}\", \"status\": \"completed\"}" > /dev/null
     echo "Closed: ${bead_id}"
   done
@@ -357,22 +377,13 @@ dd_dep_add() {
   local issue="$1" depends_on="$2"
   local pid
   pid=$(dd_project_id)
+
+  local issue_uuid dep_uuid
+  issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
+  dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+
   local all_beads
   all_beads=$(dd_api GET "/beads?projectId=${pid}")
-
-  # Resolve both IDs
-  local issue_uuid="$issue" dep_uuid="$depends_on"
-  if [[ "$issue" == dev-dash-* ]]; then
-    issue_uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$issue\") | .id")
-  fi
-  if [[ "$depends_on" == dev-dash-* ]]; then
-    dep_uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$depends_on\") | .id")
-  fi
-
-  if [ -z "$issue_uuid" ] || [ -z "$dep_uuid" ]; then
-    echo "Could not resolve bead IDs" >&2
-    exit 1
-  fi
 
   # Get current blockedBy for the issue
   local current
