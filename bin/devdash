@@ -61,6 +61,18 @@ dd_api() {
     "$url" "$@"
 }
 
+# Fetch all beads for a project (unwraps paginated response)
+dd_fetch_beads() {
+  local pid="$1"
+  dd_api GET "/beads?projectId=${pid}&limit=500" | jq '.data // .'
+}
+
+# Fetch all jobs for a project (unwraps paginated response)
+dd_fetch_jobs() {
+  local pid="$1"
+  dd_api GET "/jobs?projectId=${pid}" | jq '.data // .'
+}
+
 # Resolve a bead ID: handles dev-dash-* local IDs and UUID prefixes
 # Usage: uuid=$(dd_resolve_id "$bead_id" "$project_id")
 dd_resolve_id() {
@@ -69,7 +81,7 @@ dd_resolve_id() {
   # dev-dash-* local IDs — resolve via localBeadId field
   if [[ "$bead_id" == dev-dash-* ]]; then
     local all_beads
-    all_beads=$(dd_api GET "/beads?projectId=${pid}")
+    all_beads=$(dd_fetch_beads "$pid")
     local uuid
     uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
     if [ -z "$uuid" ]; then
@@ -88,7 +100,7 @@ dd_resolve_id() {
 
   # Short prefix — fetch all beads and match
   local all_beads
-  all_beads=$(dd_api GET "/beads?projectId=${pid}")
+  all_beads=$(dd_fetch_beads "$pid")
   local matches
   matches=$(echo "$all_beads" | jq -r "[.[] | select(.id | startswith(\"$bead_id\"))] | .[].id")
 
@@ -235,7 +247,7 @@ dd_list() {
   pid=$(dd_project_id)
   local status_filter="${1:-}"
   local beads
-  beads=$(dd_api GET "/beads?projectId=${pid}")
+  beads=$(dd_fetch_beads "$pid")
 
   if [ -n "$status_filter" ]; then
     # Accept --status=X or just a status word
@@ -250,7 +262,7 @@ dd_ready() {
   local pid
   pid=$(dd_project_id)
   local beads
-  beads=$(dd_api GET "/beads?projectId=${pid}")
+  beads=$(dd_fetch_beads "$pid")
 
   echo "$beads" | jq -r '
     ([.[] | select(.status == "completed") | .id]) as $done |
@@ -383,7 +395,7 @@ dd_dep_add() {
   dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
 
   local all_beads
-  all_beads=$(dd_api GET "/beads?projectId=${pid}")
+  all_beads=$(dd_fetch_beads "$pid")
 
   # Get current blockedBy for the issue
   local current
@@ -407,7 +419,7 @@ dd_stats() {
   local pid
   pid=$(dd_project_id)
   local beads
-  beads=$(dd_api GET "/beads?projectId=${pid}")
+  beads=$(dd_fetch_beads "$pid")
 
   local total pending in_progress completed blocked ready
   total=$(echo "$beads" | jq 'length')
@@ -441,7 +453,7 @@ dd_jobs() {
   case "$subcmd" in
     list)
       local jobs
-      jobs=$(dd_api GET "/jobs?projectId=${pid}")
+      jobs=$(dd_fetch_jobs "$pid")
       echo "$jobs" | jq -r '.[] | "\(.status | if . == "completed" then "✓" elif . == "failed" then "✗" elif . == "running" then "●" else "○" end) \(.id[0:8]) [\(.status)] \(.prompt[0:70] // "no prompt")... \(.created_at // "")"'
       ;;
     show)
@@ -474,7 +486,7 @@ dd_jobs() {
       ;;
     failures)
       local jobs
-      jobs=$(dd_api GET "/jobs?projectId=${pid}")
+      jobs=$(dd_fetch_jobs "$pid")
       echo "$jobs" | jq -r '[.[] | select(.status == "failed")] | sort_by(.created_at) | reverse | .[:10] | .[] | "✗ \(.id[0:8]) \(.error // "unknown error" | .[0:80])  \(.created_at // "")"'
       ;;
     *)
@@ -488,7 +500,7 @@ dd_blocked() {
   local pid
   pid=$(dd_project_id)
   local beads
-  beads=$(dd_api GET "/beads?projectId=${pid}")
+  beads=$(dd_fetch_beads "$pid")
 
   echo "$beads" | jq -r '
     # Build lookup of completed bead IDs
