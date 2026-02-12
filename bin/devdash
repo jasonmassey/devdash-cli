@@ -585,6 +585,57 @@ dd_reconcile_tasks() {
   fi
 }
 
+dd_project_create() {
+  local name="" repo="" description=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name=*) name="${1#--name=}" ;;
+      --repo=*) repo="${1#--repo=}" ;;
+      --description=*) description="${1#--description=}" ;;
+      *) name="$1" ;;
+    esac
+    shift
+  done
+
+  if [ -z "$name" ]; then
+    echo "Usage: devdash project create --name=\"...\" [--repo=owner/repo] [--description=\"...\"]" >&2
+    exit 1
+  fi
+
+  local body
+  body=$(jq -n \
+    --arg name "$name" \
+    --arg githubRepo "$repo" \
+    --arg description "$description" \
+    '{name: $name} + (if $githubRepo != "" then {githubRepo: $githubRepo} else {} end) + (if $description != "" then {description: $description} else {} end)')
+
+  local result
+  result=$(dd_api POST "/projects" -d "$body")
+  local id
+  id=$(echo "$result" | jq -r '.id')
+  local pname
+  pname=$(echo "$result" | jq -r '.name')
+  echo "Created project: ${id} - ${pname}"
+
+  # Auto-write .devdash if in a git repo
+  if git rev-parse --is-inside-work-tree &>/dev/null && [ ! -f "$DD_PROJECT_FILE" ]; then
+    local api_url
+    api_url=$(dd_api_url)
+    echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${id}\"}" > "$DD_PROJECT_FILE"
+    echo "Linked: .devdash -> ${id}"
+  fi
+}
+
+dd_project_list() {
+  local projects
+  projects=$(dd_api GET "/projects" 2>/dev/null) || {
+    echo "Failed to fetch projects. Are you logged in? Run: devdash login" >&2
+    exit 1
+  }
+  echo "$projects" | jq -r '.[] | "\(.id)  \(.name)  (\(.githubRepo // "no repo"))"'
+}
+
 dd_doctor() {
   local ok=true
   echo "devdash doctor — checking prerequisites"
@@ -782,6 +833,8 @@ Usage: ${cmd} <command> [args]
 Commands:
   login                  Authenticate via browser (stores token locally)
   init                   Link current repo to a dev-dash project
+  project create         Create a new project (--name, --repo, --description)
+  project list           List all your projects
   list [--status=X]      List beads (optional status filter)
   ready                  Show beads ready to work (no blockers)
   blocked                Show blocked issues with their blockers
@@ -815,6 +868,14 @@ HELP
 case "${1:-help}" in
   login)   dd_login ;;
   init)    dd_init ;;
+  project)
+    shift
+    case "${1:-}" in
+      create) shift; dd_project_create "$@" ;;
+      list)   dd_project_list ;;
+      *) echo "Usage: devdash project [create|list]" >&2; exit 1 ;;
+    esac
+    ;;
   list)    shift; dd_list "$@" ;;
   ready)   dd_ready ;;
   blocked) dd_blocked ;;
