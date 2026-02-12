@@ -6,8 +6,8 @@
 set -euo pipefail
 
 DD_VERSION="0.2.0"
-DD_CONFIG_DIR="${HOME}/.config/dev-dash"
-DD_TOKEN_FILE="${DD_CONFIG_DIR}/token"
+DD_CONFIG_DIR="${DD_CONFIG_DIR:-${HOME}/.config/dev-dash}"
+DD_TOKEN_FILE="${DD_TOKEN_FILE:-${DD_CONFIG_DIR}/token}"
 DD_PROJECT_FILE=".devdash"
 
 # Exit codes: 0=success, 1=user error, 2=API error, 3=config error
@@ -58,11 +58,12 @@ dd_token() {
 dd_api() {
   local method=$1 endpoint=$2
   shift 2
-  local url tmpfile http_code body
+  local token url tmpfile http_code body
+  token=$(dd_token) || return $?
   url="$(dd_api_url)/api${endpoint}"
   tmpfile=$(mktemp)
   http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X "$method" \
-    -H "Authorization: Bearer $(dd_token)" \
+    -H "Authorization: Bearer ${token}" \
     -H "Content-Type: application/json" \
     "$url" "$@" 2>/dev/null) || {
     rm -f "$tmpfile"
@@ -96,14 +97,16 @@ dd_jq() {
 
 # Fetch all beads for a project (unwraps paginated response)
 dd_fetch_beads() {
-  local pid="$1"
-  dd_api GET "/beads?projectId=${pid}&limit=500" | dd_jq '.data // .'
+  local pid="$1" result
+  result=$(dd_api GET "/beads?projectId=${pid}&limit=500") || return $?
+  echo "$result" | dd_jq '.data // .'
 }
 
 # Fetch all jobs for a project (unwraps paginated response)
 dd_fetch_jobs() {
-  local pid="$1"
-  dd_api GET "/jobs?projectId=${pid}" | dd_jq '.data // .'
+  local pid="$1" result
+  result=$(dd_api GET "/jobs?projectId=${pid}") || return $?
+  echo "$result" | dd_jq '.data // .'
 }
 
 # Resolve a bead ID: handles dev-dash-* local IDs and UUID prefixes

@@ -22,6 +22,9 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck bin/devdash
 
+      - name: Run tests
+        run: bash test/test.sh
+
       - name: Publish to npm
         run: npm publish --access public
         env:
