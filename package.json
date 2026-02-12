@@ -1,0 +1,36 @@
+{
+  "name": "devdash-cli",
+  "version": "0.1.0",
+  "description": "Dev-Dash CLI — AI-powered task tracking for coding agents",
+  "bin": {
+    "devdash": "bin/devdash"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin/devdash",
+    "scripts/postinstall.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "cli",
+    "task-tracking",
+    "ai-agents",
+    "claude-code",
+    "devdash"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jasonmassey/devdash-cli.git"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

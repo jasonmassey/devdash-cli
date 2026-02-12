@@ -1,0 +1,843 @@
+#!/usr/bin/env bash
+# devdash — Dev-Dash CLI
+# Thin wrapper around the dev-dash API for task tracking.
+# Usage: devdash <command> [args]
+
+set -euo pipefail
+
+DD_VERSION="0.1.0"
+DD_CONFIG_DIR="${HOME}/.config/dev-dash"
+DD_TOKEN_FILE="${DD_CONFIG_DIR}/token"
+DD_PROJECT_FILE=".devdash"
+
+# ── Helpers ──────────────────────────────────────────────────────
+
+dd_api_url() {
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    local url
+    url=$(jq -r '.api_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+    if [ -n "$url" ]; then
+      echo "$url"
+      return
+    fi
+  fi
+  echo "${DD_API_URL:-https://dev-dash-server-production.up.railway.app}"
+}
+
+dd_project_id() {
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    local pid
+    pid=$(jq -r '.project_id // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+    if [ -n "$pid" ]; then
+      echo "$pid"
+      return
+    fi
+  fi
+  if [ -n "${DD_PROJECT_ID:-}" ]; then
+    echo "$DD_PROJECT_ID"
+    return
+  fi
+  echo "No project configured. Run: devdash init" >&2
+  exit 1
+}
+
+dd_token() {
+  if [ -f "$DD_TOKEN_FILE" ]; then
+    cat "$DD_TOKEN_FILE"
+  else
+    echo "Not logged in. Run: devdash login" >&2
+    exit 1
+  fi
+}
+
+dd_api() {
+  local method=$1 endpoint=$2
+  shift 2
+  local url
+  url="$(dd_api_url)/api${endpoint}"
+  curl -sf -X "$method" \
+    -H "Authorization: Bearer $(dd_token)" \
+    -H "Content-Type: application/json" \
+    "$url" "$@"
+}
+
+# ── Detect command name ──────────────────────────────────────────
+# If user has 'dd' aliased to devdash, use 'dd' in output; otherwise 'devdash'
+dd_cmd_name() {
+  if alias dd 2>/dev/null | grep -q devdash 2>/dev/null; then
+    echo "dd"
+  elif type dd 2>/dev/null | grep -q devdash 2>/dev/null; then
+    echo "dd"
+  else
+    echo "devdash"
+  fi
+}
+
+# ── Commands ─────────────────────────────────────────────────────
+
+dd_version() {
+  echo "devdash ${DD_VERSION}"
+}
+
+dd_login() {
+  local port=18787
+  local nonce
+  nonce=$(openssl rand -hex 16)
+  local tmpfile
+  tmpfile=$(mktemp)
+  local api_url
+  api_url=$(dd_api_url)
+
+  # Start a temporary Python HTTP server for the OAuth callback
+  python3 -c "
+import http.server, urllib.parse, threading
+
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        token = (qs.get('token') or [None])[0]
+        nonce_rx = (qs.get('nonce') or [None])[0]
+        if token and nonce_rx == '${nonce}':
+            with open('${tmpfile}', 'w') as f:
+                f.write(token)
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'''<html><body style=\"font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0\">
+<div style=\"text-align:center\"><h1>Authenticated!</h1><p>You can close this tab and return to your terminal.</p></div>
+</body></html>''')
+        else:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b'Invalid callback')
+        threading.Thread(target=self.server.shutdown).start()
+    def log_message(self, *a): pass
+
+s = http.server.HTTPServer(('127.0.0.1', ${port}), H)
+s.handle_timeout = lambda: None
+s.timeout = 120
+s.serve_forever()
+" &
+  local server_pid=$!
+
+  local url="${api_url}/api/auth/cli-token?port=${port}&nonce=${nonce}"
+  echo "Opening browser for authentication..."
+  open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open this URL in your browser: $url"
+
+  # Wait for callback (up to ~120s)
+  wait "$server_pid" 2>/dev/null || true
+
+  if [ -s "$tmpfile" ]; then
+    mkdir -p "$DD_CONFIG_DIR"
+    cp "$tmpfile" "$DD_TOKEN_FILE"
+    chmod 600 "$DD_TOKEN_FILE"
+    rm -f "$tmpfile"
+    echo "Logged in successfully! Token stored in ${DD_TOKEN_FILE}"
+
+    # Auto-init if in a git repo without .devdash
+    if [ ! -f "$DD_PROJECT_FILE" ] && git rev-parse --is-inside-work-tree &>/dev/null; then
+      echo ""
+      dd_init
+    fi
+  else
+    rm -f "$tmpfile"
+    echo "Login failed or timed out." >&2
+    exit 1
+  fi
+}
+
+dd_init() {
+  # Detect GitHub remote
+  local remote=""
+  if git rev-parse --is-inside-work-tree &>/dev/null; then
+    remote=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.*)\.git$#\1#; s#.*github\.com[:/](.*)$#\1#')
+  fi
+
+  # Fetch projects
+  local projects
+  projects=$(dd_api GET "/projects" 2>/dev/null) || {
+    echo "Failed to fetch projects. Are you logged in? Run: devdash login" >&2
+    exit 1
+  }
+
+  # Try auto-match by GitHub repo
+  if [ -n "$remote" ]; then
+    local pid
+    pid=$(echo "$projects" | jq -r ".[] | select(.githubRepo == \"$remote\") | .id" 2>/dev/null | head -1)
+    if [ -n "$pid" ]; then
+      local pname
+      pname=$(echo "$projects" | jq -r ".[] | select(.id == \"$pid\") | .name" 2>/dev/null)
+      local api_url
+      api_url=$(dd_api_url)
+      echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${pid}\"}" > "$DD_PROJECT_FILE"
+      echo "Initialized: ${pname} (${remote}) -> ${pid}"
+      return
+    fi
+  fi
+
+  # List projects for manual selection
+  echo "No auto-match for remote '${remote}'. Available projects:"
+  echo "$projects" | jq -r '.[] | "  \(.id)  \(.name)  (\(.githubRepo // "no repo"))"'
+  echo ""
+  echo "Set manually: echo '{\"api_url\": \"...\", \"project_id\": \"...\"}' > .devdash"
+}
+
+dd_list() {
+  local pid
+  pid=$(dd_project_id)
+  local status_filter="${1:-}"
+  local beads
+  beads=$(dd_api GET "/beads?projectId=${pid}")
+
+  if [ -n "$status_filter" ]; then
+    # Accept --status=X or just a status word
+    status_filter="${status_filter#--status=}"
+    beads=$(echo "$beads" | jq "[.[] | select(.status == \"$status_filter\")]")
+  fi
+
+  echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" else "?" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
+}
+
+dd_ready() {
+  local pid
+  pid=$(dd_project_id)
+  local beads
+  beads=$(dd_api GET "/beads?projectId=${pid}")
+
+  echo "$beads" | jq -r '
+    ([.[] | select(.status == "completed") | .id]) as $done |
+    [.[] | select(.status == "pending")
+         | select((.blockedBy | length) == 0 or ([.blockedBy[] | IN($done[])] | all))]
+    | sort_by(.priority)
+    | .[]
+    | "○ \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)"
+  '
+}
+
+dd_show() {
+  if [ -z "${1:-}" ]; then
+    echo "Usage: devdash show <bead-id>" >&2
+    exit 1
+  fi
+  local bead_id="$1"
+  local pid
+  pid=$(dd_project_id)
+
+  # If it's a local bead ID (dev-dash-*), find the UUID first
+  local bead
+  if [[ "$bead_id" == dev-dash-* ]]; then
+    local all_beads
+    all_beads=$(dd_api GET "/beads?projectId=${pid}")
+    bead=$(echo "$all_beads" | jq ".[] | select(.localBeadId == \"$bead_id\")")
+    if [ -z "$bead" ] || [ "$bead" = "null" ]; then
+      echo "Bead not found: $bead_id" >&2
+      exit 1
+    fi
+  else
+    bead=$(dd_api GET "/beads/${bead_id}?projectId=${pid}")
+  fi
+
+  echo "$bead" | jq '{
+    id: .id,
+    localId: .localBeadId,
+    subject: .subject,
+    description: .description,
+    status: .status,
+    priority: .priority,
+    owner: .owner,
+    beadType: .beadType,
+    parentBeadId: .parentBeadId,
+    blockedBy: .blockedBy,
+    blocks: .blocks,
+    preInstructions: .preInstructions,
+    createdAt: .createdAt,
+    updatedAt: .updatedAt
+  }'
+}
+
+dd_create() {
+  local pid
+  pid=$(dd_project_id)
+  local title="" type="task" priority=2 description="" parent=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --title=*) title="${1#--title=}" ;;
+      --type=*) type="${1#--type=}" ;;
+      --priority=*) priority="${1#--priority=}" ;;
+      --description=*) description="${1#--description=}" ;;
+      --parent=*) parent="${1#--parent=}" ;;
+      *) title="$1" ;;
+    esac
+    shift
+  done
+
+  if [ -z "$title" ]; then
+    echo "Usage: devdash create --title=\"...\" [--type=task|bug|feature] [--priority=0-4] [--description=\"...\"]" >&2
+    exit 1
+  fi
+
+  local body
+  body=$(jq -n \
+    --arg projectId "$pid" \
+    --arg subject "$title" \
+    --arg description "$description" \
+    --argjson priority "$priority" \
+    --arg beadType "$type" \
+    --arg parentBeadId "$parent" \
+    '{projectId: $projectId, subject: $subject, description: $description, priority: $priority, beadType: $beadType} + (if $parentBeadId != "" then {parentBeadId: $parentBeadId} else {} end)')
+
+  local result
+  result=$(dd_api POST "/beads" -d "$body")
+  local id
+  id=$(echo "$result" | jq -r '.id')
+  local subject
+  subject=$(echo "$result" | jq -r '.subject')
+  echo "Created: ${id} - ${subject}"
+}
+
+dd_update() {
+  local bead_id="$1"
+  shift
+  local pid
+  pid=$(dd_project_id)
+
+  # Resolve local bead ID to UUID
+  local uuid="$bead_id"
+  if [[ "$bead_id" == dev-dash-* ]]; then
+    local all_beads
+    all_beads=$(dd_api GET "/beads?projectId=${pid}")
+    uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
+    if [ -z "$uuid" ]; then
+      echo "Bead not found: $bead_id" >&2
+      exit 1
+    fi
+  fi
+
+  local body
+  body=$(jq -n --arg pid "$pid" '{projectId: $pid}')
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status=*) body=$(echo "$body" | jq --arg v "${1#--status=}" '. + {status: $v}') ;;
+      --priority=*) body=$(echo "$body" | jq --argjson v "${1#--priority=}" '. + {priority: $v}') ;;
+      --owner=*) body=$(echo "$body" | jq --arg v "${1#--owner=}" '. + {owner: $v}') ;;
+      --title=*) body=$(echo "$body" | jq --arg v "${1#--title=}" '. + {subject: $v}') ;;
+      --description=*) body=$(echo "$body" | jq --arg v "${1#--description=}" '. + {description: $v}') ;;
+      --pre-instructions=*) body=$(echo "$body" | jq --arg v "${1#--pre-instructions=}" '. + {preInstructions: $v}') ;;
+    esac
+    shift
+  done
+
+  dd_api PATCH "/beads/${uuid}" -d "$body" > /dev/null
+  echo "Updated: ${bead_id}"
+}
+
+dd_close() {
+  local pid
+  pid=$(dd_project_id)
+
+  for bead_id in "$@"; do
+    local uuid="$bead_id"
+    if [[ "$bead_id" == dev-dash-* ]]; then
+      local all_beads
+      all_beads=$(dd_api GET "/beads?projectId=${pid}")
+      uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
+      if [ -z "$uuid" ]; then
+        echo "Bead not found: $bead_id" >&2
+        continue
+      fi
+    fi
+    dd_api PATCH "/beads/${uuid}" -d "{\"projectId\": \"${pid}\", \"status\": \"completed\"}" > /dev/null
+    echo "Closed: ${bead_id}"
+  done
+}
+
+dd_dep_add() {
+  local issue="$1" depends_on="$2"
+  local pid
+  pid=$(dd_project_id)
+  local all_beads
+  all_beads=$(dd_api GET "/beads?projectId=${pid}")
+
+  # Resolve both IDs
+  local issue_uuid="$issue" dep_uuid="$depends_on"
+  if [[ "$issue" == dev-dash-* ]]; then
+    issue_uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$issue\") | .id")
+  fi
+  if [[ "$depends_on" == dev-dash-* ]]; then
+    dep_uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$depends_on\") | .id")
+  fi
+
+  if [ -z "$issue_uuid" ] || [ -z "$dep_uuid" ]; then
+    echo "Could not resolve bead IDs" >&2
+    exit 1
+  fi
+
+  # Get current blockedBy for the issue
+  local current
+  current=$(echo "$all_beads" | jq ".[] | select(.id == \"$issue_uuid\")")
+  local blocked_by
+  blocked_by=$(echo "$current" | jq -c ".blockedBy + [\"$dep_uuid\"] | unique")
+
+  # Get current blocks for the dependency
+  local dep_current
+  dep_current=$(echo "$all_beads" | jq ".[] | select(.id == \"$dep_uuid\")")
+  local blocks
+  blocks=$(echo "$dep_current" | jq -c ".blocks + [\"$issue_uuid\"] | unique")
+
+  # Update both
+  dd_api PATCH "/beads/${issue_uuid}" -d "{\"projectId\": \"${pid}\", \"blockedBy\": ${blocked_by}}" > /dev/null
+  dd_api PATCH "/beads/${dep_uuid}" -d "{\"projectId\": \"${pid}\", \"blocks\": ${blocks}}" > /dev/null
+  echo "Added dependency: ${issue} depends on ${depends_on}"
+}
+
+dd_stats() {
+  local pid
+  pid=$(dd_project_id)
+  local beads
+  beads=$(dd_api GET "/beads?projectId=${pid}")
+
+  local total pending in_progress completed blocked ready
+  total=$(echo "$beads" | jq 'length')
+  pending=$(echo "$beads" | jq '[.[] | select(.status == "pending")] | length')
+  in_progress=$(echo "$beads" | jq '[.[] | select(.status == "in_progress")] | length')
+  completed=$(echo "$beads" | jq '[.[] | select(.status == "completed")] | length')
+  blocked=$(echo "$beads" | jq '
+    ([.[] | select(.status == "completed") | .id]) as $done |
+    [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
+         | select([.blockedBy[] | IN($done[])] | all | not)]
+    | length')
+  ready=$(echo "$beads" | jq '
+    ([.[] | select(.status == "completed") | .id]) as $done |
+    [.[] | select(.status == "pending")
+         | select((.blockedBy | length) == 0 or ([.blockedBy[] | IN($done[])] | all))]
+    | length')
+
+  echo "Total:       ${total}"
+  echo "Pending:     ${pending}"
+  echo "In Progress: ${in_progress}"
+  echo "Completed:   ${completed}"
+  echo "Blocked:     ${blocked}"
+  echo "Ready:       ${ready}"
+}
+
+dd_jobs() {
+  local pid
+  pid=$(dd_project_id)
+  local subcmd="${1:-list}"
+
+  case "$subcmd" in
+    list)
+      local jobs
+      jobs=$(dd_api GET "/jobs?projectId=${pid}")
+      echo "$jobs" | jq -r '.[] | "\(.status | if . == "completed" then "✓" elif . == "failed" then "✗" elif . == "running" then "●" else "○" end) \(.id[0:8]) [\(.status)] \(.prompt[0:70] // "no prompt")... \(.created_at // "")"'
+      ;;
+    show)
+      if [ -z "${2:-}" ]; then
+        echo "Usage: devdash jobs show <job-id>" >&2
+        exit 1
+      fi
+      local job
+      job=$(dd_api GET "/jobs/${2}")
+      echo "$job" | jq '{
+        id: .id,
+        beadId: .bead_id,
+        status: .status,
+        workerType: .worker_type,
+        createdAt: .created_at,
+        startedAt: .started_at,
+        completedAt: .completed_at,
+        error: .error,
+        failureAnalysis: .failureAnalysis
+      }'
+      ;;
+    log)
+      if [ -z "${2:-}" ]; then
+        echo "Usage: devdash jobs log <job-id>" >&2
+        exit 1
+      fi
+      local job
+      job=$(dd_api GET "/jobs/${2}")
+      echo "$job" | jq -r '.output_log // "No log available"'
+      ;;
+    failures)
+      local jobs
+      jobs=$(dd_api GET "/jobs?projectId=${pid}")
+      echo "$jobs" | jq -r '[.[] | select(.status == "failed")] | sort_by(.created_at) | reverse | .[:10] | .[] | "✗ \(.id[0:8]) \(.error // "unknown error" | .[0:80])  \(.created_at // "")"'
+      ;;
+    *)
+      echo "Usage: devdash jobs [list|show <id>|log <id>|failures]" >&2
+      exit 1
+      ;;
+  esac
+}
+
+dd_blocked() {
+  local pid
+  pid=$(dd_project_id)
+  local beads
+  beads=$(dd_api GET "/beads?projectId=${pid}")
+
+  echo "$beads" | jq -r '
+    # Build lookup of completed bead IDs
+    ([.[] | select(.status == "completed") | .id]) as $done |
+    [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
+         | select([.blockedBy[] | IN($done[])] | all | not)]
+    | sort_by(.priority)
+    | .[]
+    | "○ \(.localBeadId // .id) [P\(.priority)] - \(.subject)  blocked by: \(.blockedBy | join(", "))"
+  '
+}
+
+dd_sync() {
+  local pid
+  pid=$(dd_project_id)
+  echo "Triggering reconcile..."
+  local result
+  result=$(dd_api POST "/sync/${pid}/sync-all" -d '{}')
+  echo "$result" | jq '.'
+}
+
+dd_reconcile_tasks() {
+  local pid
+  pid=$(dd_project_id)
+  local dry_run=true
+  local auto_fix=false
+  local json_output=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --auto-fix) auto_fix=true; dry_run=false ;;
+      --dry-run) dry_run=true ;;
+      --json) json_output=true ;;
+    esac
+    shift
+  done
+
+  local body
+  body=$(jq -n \
+    --arg projectId "$pid" \
+    --argjson dryRun "$dry_run" \
+    --argjson autoFix "$auto_fix" \
+    '{projectId: $projectId, dryRun: $dryRun, autoFix: $autoFix}')
+
+  echo "Auditing backlog..." >&2
+  local result
+  result=$(dd_api POST "/jobs/reconcile-tasks" -d "$body")
+
+  if [ "$json_output" = true ]; then
+    echo "$result" | jq '.'
+    return
+  fi
+
+  # Display summary
+  local total scanned duration
+  total=$(echo "$result" | jq '.findings | length')
+  scanned=$(echo "$result" | jq '.totalBeadsScanned')
+  duration=$(echo "$result" | jq '.durationMs')
+
+  echo ""
+  echo "Scanned ${scanned} tasks in ${duration}ms — found ${total} finding(s)"
+  echo ""
+
+  if [ "$total" -eq 0 ]; then
+    echo "No issues found — backlog looks clean!"
+    return
+  fi
+
+  # Display summary counts
+  echo "$result" | jq -r '"  Dependency issues: \(.summary.dependencyIssues)
+  Stale tasks:        \(.summary.stale)
+  Redundant tasks:    \(.summary.redundant)
+  Likely completed:   \(.summary.likelyCompleted)
+  Orphaned tasks:     \(.summary.orphaned)
+  Auto-fixable:       \(.summary.autoFixable)"'
+  echo ""
+
+  # Group findings by type
+  for ftype in dependency_issue stale redundant likely_completed orphaned superseded; do
+    local count
+    count=$(echo "$result" | jq "[.findings[] | select(.type == \"$ftype\")] | length")
+    if [ "$count" -eq 0 ]; then continue; fi
+
+    local label
+    case "$ftype" in
+      dependency_issue) label="Dependency Issues" ;;
+      stale) label="Stale Tasks" ;;
+      redundant) label="Redundant Tasks" ;;
+      likely_completed) label="Likely Completed" ;;
+      orphaned) label="Orphaned Tasks" ;;
+      superseded) label="Superseded Tasks" ;;
+    esac
+
+    echo "── ${label} (${count}) ──"
+    echo "$result" | jq -r ".findings[] | select(.type == \"$ftype\") | \"  [\(.severity)] \(.beadSubject)\n    → \(.reason)\(if .relatedBeadId then \"\n    related: \(.relatedBeadId[0:8])...\" else \"\" end)\""
+    echo ""
+  done
+
+  if [ "$auto_fix" = true ]; then
+    local fixed
+    fixed=$(echo "$result" | jq '.summary.autoFixable')
+    echo "Applied ${fixed} auto-fix(es)"
+  elif [ "$(echo "$result" | jq '.summary.autoFixable')" -gt 0 ]; then
+    echo "Run with --auto-fix to fix dependency issues automatically"
+  fi
+}
+
+dd_doctor() {
+  local ok=true
+  echo "devdash doctor — checking prerequisites"
+  echo ""
+  for cmd in curl jq openssl python3 git; do
+    if command -v "$cmd" &>/dev/null; then
+      echo "  ✓ $cmd: $(command -v "$cmd")"
+    else
+      echo "  ✗ $cmd: NOT FOUND"
+      ok=false
+    fi
+  done
+  echo ""
+  # Check config
+  if [ -f "$DD_TOKEN_FILE" ]; then
+    echo "  ✓ auth token: ${DD_TOKEN_FILE}"
+  else
+    echo "  ○ auth token: not found (run 'devdash login')"
+  fi
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    echo "  ✓ project config: ${DD_PROJECT_FILE}"
+  else
+    echo "  ○ project config: not found (run 'devdash init')"
+  fi
+  echo ""
+  # Check if dd alias exists
+  if alias dd 2>/dev/null | grep -q devdash 2>/dev/null; then
+    echo "  ✓ dd alias: active"
+  elif type dd 2>/dev/null | grep -q devdash 2>/dev/null; then
+    echo "  ✓ dd alias: active (via PATH/function)"
+  else
+    echo "  ○ dd alias: not set (run 'devdash alias-setup' to configure)"
+  fi
+  echo ""
+  $ok && echo "All good!" || echo "Missing dependencies above."
+}
+
+dd_alias_setup() {
+  local shell_name shell_rc
+
+  # Detect shell
+  shell_name=$(basename "${SHELL:-/bin/bash}")
+  case "$shell_name" in
+    zsh)  shell_rc="${HOME}/.zshrc" ;;
+    bash)
+      if [ -f "${HOME}/.bashrc" ]; then
+        shell_rc="${HOME}/.bashrc"
+      else
+        shell_rc="${HOME}/.bash_profile"
+      fi
+      ;;
+    fish) shell_rc="${HOME}/.config/fish/config.fish" ;;
+    *)    shell_rc="${HOME}/.${shell_name}rc" ;;
+  esac
+
+  echo "This will add 'alias dd=devdash' to ${shell_rc}"
+  echo ""
+  echo "  Note: this shadows /usr/bin/dd (Unix disk copy utility)."
+  echo "  Only do this if you don't use that tool."
+  echo ""
+
+  # Check if already set
+  if grep -q 'alias dd=devdash' "$shell_rc" 2>/dev/null; then
+    echo "Alias already exists in ${shell_rc} — nothing to do."
+    return
+  fi
+
+  printf "Add alias? [Y/n] "
+  read -r answer </dev/tty 2>/dev/null || answer="y"
+  answer="${answer:-y}"
+
+  case "$answer" in
+    [Yy]|[Yy]es|"")
+      echo "" >> "$shell_rc"
+      echo "# devdash: alias dd -> devdash" >> "$shell_rc"
+      echo "alias dd=devdash" >> "$shell_rc"
+      echo ""
+      echo "Added to ${shell_rc}. Run 'source ${shell_rc}' or restart your terminal."
+      ;;
+    *)
+      echo "Skipped. You can always run 'devdash alias-setup' later."
+      ;;
+  esac
+}
+
+dd_self_update() {
+  if command -v npm &>/dev/null; then
+    echo "Updating via npm..."
+    npm update -g devdash-cli
+  else
+    echo "npm not found. Install Node.js or update manually." >&2
+    exit 1
+  fi
+  echo "Updated to $(devdash --version)"
+}
+
+dd_prime() {
+  # Detect preferred command name
+  local dd_cmd
+  dd_cmd=$(dd_cmd_name)
+
+  cat <<PRIME
+# Dev-Dash Workflow Context
+
+> **Context Recovery**: Run \`devdash prime\` after compaction, clear, or new session.
+> Use \`${dd_cmd}\` (dev-dash CLI) for ALL task tracking — never \`bd\`.
+
+# SESSION CLOSE PROTOCOL
+
+**CRITICAL**: Before saying "done" or "complete", you MUST run this checklist:
+
+\`\`\`
+[ ] 1. git status              (check what changed)
+[ ] 2. git add <files>         (stage code changes)
+[ ] 3. git commit -m "..."     (commit code)
+[ ] 4. git push                (push to remote)
+\`\`\`
+
+**NEVER skip this.** Work is not done until pushed.
+
+## Core Rules
+- **Default**: Use \`${dd_cmd}\` for ALL task tracking (\`${dd_cmd} create\`, \`${dd_cmd} ready\`, \`${dd_cmd} close\`)
+- **Path**: \`$(command -v devdash 2>/dev/null || echo "devdash")\`
+- **Prohibited**: Do NOT use \`bd\`, TodoWrite, TaskCreate, or markdown files for task tracking
+- **Workflow**: Create ${dd_cmd} issue BEFORE writing code, mark in_progress when starting
+- Session management: check \`${dd_cmd} ready\` for available work
+
+## Essential Commands
+
+### Finding Work
+- \`${dd_cmd} ready\` — Show issues ready to work (no blockers)
+- \`${dd_cmd} list\` — All open issues
+- \`${dd_cmd} list --status=in_progress\` — Your active work
+- \`${dd_cmd} show <id>\` — Detailed issue view with dependencies
+- \`${dd_cmd} blocked\` — Show all blocked issues
+
+### Creating & Updating
+- \`${dd_cmd} create --title="..." --type=task|bug|feature --priority=2\` — New issue
+  - Priority: 0-4 (0=critical, 2=medium, 4=backlog). NOT "high"/"medium"/"low"
+  - Optional: \`--description="..."\` \`--parent=<id>\`
+- \`${dd_cmd} update <id> --status=in_progress\` — Claim work
+- \`${dd_cmd} update <id> --owner=username\` — Assign to someone
+- \`${dd_cmd} update <id> --title/--description/--pre-instructions="..."\` — Update fields
+- \`${dd_cmd} close <id>\` — Mark complete
+- \`${dd_cmd} close <id1> <id2> ...\` — Close multiple issues at once
+- **Tip**: When creating multiple issues, use parallel subagents for efficiency
+
+### Dependencies & Blocking
+- \`${dd_cmd} dep add <issue> <depends-on>\` — Add dependency (issue depends on depends-on)
+- \`${dd_cmd} blocked\` — Show all blocked issues
+- \`${dd_cmd} show <id>\` — See what's blocking/blocked by this issue
+
+### Jobs
+- \`${dd_cmd} jobs\` — List recent jobs
+- \`${dd_cmd} jobs show <id>\` — Job details + failure analysis
+- \`${dd_cmd} jobs log <id>\` — Full job output log
+- \`${dd_cmd} jobs failures\` — Recent failed jobs
+
+### Project Health
+- \`${dd_cmd} stats\` — Project statistics (open/closed/blocked counts)
+- \`${dd_cmd} sync\` — Trigger full reconcile with GitHub
+- \`${dd_cmd} reconcile-tasks\` — AI-powered backlog audit (--dry-run, --auto-fix, --json)
+
+## Common Workflows
+
+**Starting work:**
+\`\`\`bash
+${dd_cmd} ready                          # Find available work
+${dd_cmd} show <id>                      # Review issue details
+${dd_cmd} update <id> --status=in_progress  # Claim it
+\`\`\`
+
+**Completing work:**
+\`\`\`bash
+${dd_cmd} close <id1> <id2> ...    # Close all completed issues at once
+\`\`\`
+
+**Creating dependent work:**
+\`\`\`bash
+${dd_cmd} create --title="Implement feature X" --type=feature
+${dd_cmd} create --title="Write tests for X" --type=task
+${dd_cmd} dep add <tests-id> <feature-id>  # Tests depend on Feature
+\`\`\`
+PRIME
+}
+
+dd_help() {
+  local cmd
+  cmd=$(dd_cmd_name)
+  cat <<HELP
+devdash — Dev-Dash CLI
+
+Usage: ${cmd} <command> [args]
+
+Commands:
+  login                  Authenticate via browser (stores token locally)
+  init                   Link current repo to a dev-dash project
+  list [--status=X]      List beads (optional status filter)
+  ready                  Show beads ready to work (no blockers)
+  blocked                Show blocked issues with their blockers
+  show <id>              Show bead details
+  create --title="..."   Create a bead (--type, --priority, --description, --parent)
+  update <id> --key=val  Update bead fields (--status, --priority, --owner, --title,
+                         --description, --pre-instructions)
+  close <id> [<id>...]   Close one or more beads
+  dep add <id> <dep-id>  Add dependency (id depends on dep-id)
+  jobs [list]            List recent jobs
+  jobs show <id>         Show job details + failure analysis
+  jobs log <id>          Show full job output log
+  jobs failures          Show recent failed jobs
+  reconcile-tasks        Audit backlog for stale/redundant/completed tasks
+                         (--dry-run (default), --auto-fix, --json)
+  stats                  Show project statistics
+  sync                   Trigger full reconcile with GitHub
+  prime                  Output AI-optimized workflow context (for agent injection)
+  doctor                 Check prerequisites and configuration
+  alias-setup            Add 'dd' -> 'devdash' alias to your shell
+  self-update            Update devdash to the latest version
+  version                Show version
+  help                   Show this help
+
+Bead IDs can be either UUID or local ID (dev-dash-*).
+HELP
+}
+
+# ── Main ─────────────────────────────────────────────────────────
+
+case "${1:-help}" in
+  login)   dd_login ;;
+  init)    dd_init ;;
+  list)    shift; dd_list "$@" ;;
+  ready)   dd_ready ;;
+  blocked) dd_blocked ;;
+  show)    shift; dd_show "$@" ;;
+  create)  shift; dd_create "$@" ;;
+  update)  shift; dd_update "$@" ;;
+  close)   shift; dd_close "$@" ;;
+  dep)
+    shift
+    case "${1:-}" in
+      add) shift; dd_dep_add "$@" ;;
+      *) echo "Usage: devdash dep add <issue> <depends-on>" >&2; exit 1 ;;
+    esac
+    ;;
+  jobs)    shift; dd_jobs "$@" ;;
+  reconcile-tasks) shift; dd_reconcile_tasks "$@" ;;
+  stats)   dd_stats ;;
+  sync)    dd_sync ;;
+  prime)   dd_prime ;;
+  doctor)  dd_doctor ;;
+  alias-setup) dd_alias_setup ;;
+  self-update) dd_self_update ;;
+  version|--version|-v) dd_version ;;
+  help|--help|-h) dd_help ;;
+  *) echo "Unknown command: $1. Run 'devdash help' for usage." >&2; exit 1 ;;
+esac
