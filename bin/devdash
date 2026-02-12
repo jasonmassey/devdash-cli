@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-DD_VERSION="0.1.0"
+DD_VERSION="0.2.0"
 DD_CONFIG_DIR="${HOME}/.config/dev-dash"
 DD_TOKEN_FILE="${DD_CONFIG_DIR}/token"
 DD_PROJECT_FILE=".devdash"
