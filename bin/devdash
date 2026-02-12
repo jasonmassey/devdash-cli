@@ -173,13 +173,25 @@ dd_version() {
 }
 
 dd_login() {
-  local port=18787
   local nonce
   nonce=$(openssl rand -hex 16)
   local tmpfile
   tmpfile=$(mktemp)
   local api_url
   api_url=$(dd_api_url)
+
+  # Find an available port (try 18787-18792)
+  local port=""
+  for try_port in 18787 18788 18789 18790 18791 18792; do
+    if ! python3 -c "import socket; s=socket.socket(); s.settimeout(0.1); s.connect(('127.0.0.1',$try_port)); s.close()" 2>/dev/null; then
+      port=$try_port
+      break
+    fi
+  done
+  if [ -z "$port" ]; then
+    echo "Error: all callback ports 18787-18792 are in use" >&2
+    exit "$DD_EXIT_CONFIG"
+  fi
 
   # Start a temporary Python HTTP server for the OAuth callback
   python3 -c "
@@ -207,18 +219,22 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 s = http.server.HTTPServer(('127.0.0.1', ${port}), H)
-s.handle_timeout = lambda: None
-s.timeout = 120
+s.timeout = 60
 s.serve_forever()
 " &
   local server_pid=$!
 
+  # Clean up server on Ctrl+C
+  trap 'kill $server_pid 2>/dev/null; rm -f "$tmpfile"; exit 130' INT
+
   local url="${api_url}/api/auth/cli-token?port=${port}&nonce=${nonce}"
   echo "Opening browser for authentication..."
+  echo "Listening on port ${port}..."
   open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open this URL in your browser: $url"
 
-  # Wait for callback (up to ~120s)
+  # Wait for callback (up to ~60s)
   wait "$server_pid" 2>/dev/null || true
+  trap - INT
 
   if [ -s "$tmpfile" ]; then
     mkdir -p "$DD_CONFIG_DIR"
@@ -415,6 +431,47 @@ dd_close() {
     uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
     dd_api PATCH "/beads/${uuid}" -d "{\"projectId\": \"${pid}\", \"status\": \"completed\"}" > /dev/null
     echo "Closed: ${bead_id}"
+  done
+}
+
+dd_delete() {
+  local force=false
+  local bead_ids=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force|-f) force=true ;;
+      *) bead_ids+=("$1") ;;
+    esac
+    shift
+  done
+
+  if [ ${#bead_ids[@]} -eq 0 ]; then
+    echo "Usage: devdash delete <bead-id> [<bead-id>...] [--force]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local pid
+  pid=$(dd_project_id)
+
+  for bead_id in "${bead_ids[@]}"; do
+    local uuid
+    uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
+
+    if [ "$force" != true ]; then
+      local bead subject
+      bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
+      subject=$(echo "$bead" | dd_jq -r '.subject')
+      printf "Delete '%s'? [y/N] " "$subject"
+      read -r answer </dev/tty 2>/dev/null || answer="n"
+      case "$answer" in
+        [Yy]|[Yy]es) ;;
+        *) echo "Skipped: $bead_id"; continue ;;
+      esac
+    fi
+
+    dd_api DELETE "/beads/${uuid}?projectId=${pid}" > /dev/null
+    echo "Deleted: ${bead_id}"
   done
 }
 
@@ -692,6 +749,39 @@ dd_project_list() {
   echo "$projects" | jq -r '.[] | "\(.id)  \(.name)  (\(.githubRepo // "no repo"))"'
 }
 
+dd_project_delete() {
+  local force=false
+  local project_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force|-f) force=true ;;
+      *) project_id="$1" ;;
+    esac
+    shift
+  done
+
+  if [ -z "$project_id" ]; then
+    echo "Usage: devdash project delete <project-id> [--force]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  if [ "$force" != true ]; then
+    local project pname
+    project=$(dd_api GET "/projects/${project_id}")
+    pname=$(echo "$project" | dd_jq -r '.name')
+    printf "Delete project '%s'? This cannot be undone. [y/N] " "$pname"
+    read -r answer </dev/tty 2>/dev/null || answer="n"
+    case "$answer" in
+      [Yy]|[Yy]es) ;;
+      *) echo "Cancelled."; return ;;
+    esac
+  fi
+
+  dd_api DELETE "/projects/${project_id}" > /dev/null
+  echo "Deleted project: ${project_id}"
+}
+
 dd_doctor() {
   local ok=true
   echo "devdash doctor — checking prerequisites"
@@ -793,11 +883,48 @@ dd_prime() {
   local dd_cmd
   dd_cmd=$(dd_cmd_name)
 
+  # Gather project context if available
+  local project_header=""
+  if [ -f "$DD_PROJECT_FILE" ] && [ -f "$DD_TOKEN_FILE" ]; then
+    local pid
+    pid=$(jq -r '.project_id // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+    if [ -n "$pid" ]; then
+      local project_info
+      project_info=$(dd_api GET "/projects/${pid}" 2>/dev/null) || true
+      if [ -n "$project_info" ]; then
+        local pname prepo
+        pname=$(echo "$project_info" | jq -r '.name // "unknown"' 2>/dev/null)
+        prepo=$(echo "$project_info" | jq -r '.githubRepo // empty' 2>/dev/null)
+        project_header="**Project**: ${pname}"
+        if [ -n "$prepo" ]; then
+          project_header="${project_header} (${prepo})"
+        fi
+        project_header="${project_header}  |  **ID**: \`${pid:0:8}\`"
+      fi
+
+      local beads
+      beads=$(dd_fetch_beads "$pid" 2>/dev/null) || true
+      if [ -n "$beads" ]; then
+        local open ip blocked
+        open=$(echo "$beads" | jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)
+        ip=$(echo "$beads" | jq '[.[] | select(.status == "in_progress")] | length' 2>/dev/null)
+        blocked=$(echo "$beads" | jq '
+          ([.[] | select(.status == "completed") | .id]) as $done |
+          [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
+               | select([.blockedBy[] | IN($done[])] | all | not)]
+          | length' 2>/dev/null)
+        project_header="${project_header}
+**Health**: ${open:-0} open, ${ip:-0} in progress, ${blocked:-0} blocked"
+      fi
+    fi
+  fi
+
   cat <<PRIME
 # Dev-Dash Workflow Context
 
 > **Context Recovery**: Run \`devdash prime\` after compaction, clear, or new session.
 > Use \`${dd_cmd}\` (dev-dash CLI) for ALL task tracking — never \`bd\`.
+$([ -n "$project_header" ] && echo "" && echo "$project_header")
 
 # SESSION CLOSE PROTOCOL
 
@@ -837,6 +964,7 @@ dd_prime() {
 - \`${dd_cmd} update <id> --title/--description/--pre-instructions="..."\` — Update fields
 - \`${dd_cmd} close <id>\` — Mark complete
 - \`${dd_cmd} close <id1> <id2> ...\` — Close multiple issues at once
+- \`${dd_cmd} delete <id> [--force]\` — Delete a bead (with confirmation)
 - **Tip**: When creating multiple issues, use parallel subagents for efficiency
 
 ### Dependencies & Blocking
@@ -891,6 +1019,7 @@ Commands:
   init                   Link current repo to a dev-dash project
   project create         Create a new project (--name, --repo, --description)
   project list           List all your projects
+  project delete <id>    Delete a project (--force to skip confirmation)
   list [--status=X]      List beads (optional status filter)
   ready                  Show beads ready to work (no blockers)
   blocked                Show blocked issues with their blockers
@@ -899,6 +1028,7 @@ Commands:
   update <id> --key=val  Update bead fields (--status, --priority, --owner, --title,
                          --description, --pre-instructions)
   close <id> [<id>...]   Close one or more beads
+  delete <id> [--force]  Delete a bead (with confirmation)
   dep add <id> <dep-id>  Add dependency (id depends on dep-id)
   jobs [list]            List recent jobs
   jobs show <id>         Show job details + failure analysis
@@ -929,7 +1059,8 @@ case "${1:-help}" in
     case "${1:-}" in
       create) shift; dd_project_create "$@" ;;
       list)   dd_project_list ;;
-      *) echo "Usage: devdash project [create|list]" >&2; exit "$DD_EXIT_USER" ;;
+      delete) shift; dd_project_delete "$@" ;;
+      *) echo "Usage: devdash project [create|list|delete]" >&2; exit "$DD_EXIT_USER" ;;
     esac
     ;;
   list)    shift; dd_list "$@" ;;
@@ -939,6 +1070,7 @@ case "${1:-help}" in
   create)  shift; dd_create "$@" ;;
   update)  shift; dd_update "$@" ;;
   close)   shift; dd_close "$@" ;;
+  delete)  shift; dd_delete "$@" ;;
   dep)
     shift
     case "${1:-}" in
