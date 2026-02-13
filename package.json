@@ -6,12 +6,10 @@
     "devdash": "bin/devdash"
   },
   "scripts": {
-    "test": "bash test/test.sh",
-    "postinstall": "cd / && node ${npm_package_json%/package.json}/scripts/postinstall.js"
+    "test": "bash test/test.sh"
   },
   "files": [
     "bin/devdash",
-    "scripts/postinstall.js",
     "test/test.sh",
     "README.md",
     "LICENSE"
