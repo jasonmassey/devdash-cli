@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test": "bash test/test.sh",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "cd / && node ${npm_package_json%/package.json}/scripts/postinstall.js"
   },
   "files": [
     "bin/devdash",
