@@ -283,6 +283,7 @@ dd_init() {
       api_url=$(dd_api_url)
       echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${pid}\"}" > "$DD_PROJECT_FILE"
       echo "Initialized: ${pname} (${remote}) -> ${pid}"
+      dd_maybe_offer_alias
       return
     fi
   fi
@@ -820,6 +821,46 @@ dd_doctor() {
   fi
   echo ""
   $ok && echo "All good!" || echo "Missing dependencies above."
+}
+
+dd_maybe_offer_alias() {
+  # Skip in non-interactive environments
+  [ -t 0 ] || return 0
+
+  local shell_name shell_rc
+  shell_name=$(basename "${SHELL:-/bin/bash}")
+  case "$shell_name" in
+    zsh)  shell_rc="${HOME}/.zshrc" ;;
+    bash)
+      if [ -f "${HOME}/.bashrc" ]; then shell_rc="${HOME}/.bashrc"
+      else shell_rc="${HOME}/.bash_profile"; fi ;;
+    fish) shell_rc="${HOME}/.config/fish/config.fish" ;;
+    *)    shell_rc="${HOME}/.${shell_name}rc" ;;
+  esac
+
+  # Already configured — nothing to do
+  if grep -q 'alias dd=devdash' "$shell_rc" 2>/dev/null; then
+    return 0
+  fi
+
+  echo ""
+  echo "Tip: alias 'dd' → 'devdash' for shorter commands?"
+  echo "  (shadows /usr/bin/dd — skip if you use that tool)"
+  printf "Add alias to ${shell_rc}? [Y/n] "
+  read -r answer </dev/tty 2>/dev/null || answer="n"
+  answer="${answer:-y}"
+
+  case "$answer" in
+    [Yy]|[Yy]es|"")
+      echo "" >> "$shell_rc"
+      echo "# devdash: alias dd -> devdash" >> "$shell_rc"
+      echo "alias dd=devdash" >> "$shell_rc"
+      echo "Added! Run 'source ${shell_rc}' or restart your terminal."
+      ;;
+    *)
+      echo "Skipped. Run 'devdash alias-setup' anytime."
+      ;;
+  esac
 }
 
 dd_alias_setup() {
