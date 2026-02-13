@@ -1,5 +1,5 @@
 {
-  "name": "devdash-cli",
+  "name": "@devdashproject/devdash-cli",
   "version": "0.2.0",
   "description": "Dev-Dash CLI — AI-powered task tracking for coding agents",
   "bin": {
@@ -26,7 +26,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jasonmassey/devdash-cli.git"
+    "url": "git+https://github.com/jasonmassey/devdash-cli.git"
   },
   "os": [
     "darwin",

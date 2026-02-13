@@ -6,16 +6,22 @@ A lightweight bash CLI that wraps the [Dev-Dash](https://github.com/jasonmassey/
 
 ## Install
 
-### npm (recommended)
+### From GitHub (recommended)
 
 ```bash
-npm install -g devdash-cli
+npm install -g github:jasonmassey/devdash-cli
 ```
 
 ### curl
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/install.sh | bash
+```
+
+### npm (coming soon)
+
+```bash
+npm install -g @devdashproject/devdash-cli
 ```
 
 ## Setup
