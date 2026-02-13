@@ -11,6 +11,7 @@
   "files": [
     "bin/devdash",
     "test/test.sh",
+    "GETTING-STARTED.md",
     "README.md",
     "LICENSE"
   ],

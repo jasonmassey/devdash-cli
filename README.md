@@ -4,6 +4,8 @@ Dev-Dash CLI — AI-powered task tracking for coding agents.
 
 A lightweight bash CLI that wraps the [Dev-Dash](https://github.com/jasonmassey/dev-dash) REST API for managing tasks, dependencies, and agent jobs from the terminal.
 
+**New here?** Check out the **[Getting Started guide](GETTING-STARTED.md)** for a friendly walkthrough.
+
 ## Install
 
 ### From GitHub (recommended)
@@ -95,7 +97,7 @@ Commands accept UUIDs, short prefixes (e.g., `27bf`), or local IDs (`dev-dash-*`
 
 ### dd alias
 
-During install, you'll be prompted to alias `dd` to `devdash` for shorter commands. This shadows `/usr/bin/dd` (Unix disk copy) — only enable if you don't use that tool.
+During `devdash init`, you'll be prompted to alias `dd` to `devdash` for shorter commands. This shadows `/usr/bin/dd` (Unix disk copy) — only enable if you don't use that tool.
 
 ```bash
 devdash alias-setup
