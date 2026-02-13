@@ -1050,6 +1050,288 @@ ${dd_cmd} dep add <tests-id> <feature-id>  # Tests depend on Feature
 PRIME
 }
 
+# ── Agent Setup ──────────────────────────────────────────────────
+
+DD_AGENT_MARKER="<!-- devdash:agent-instructions -->"
+
+dd_generate_agent_instructions() {
+  cat <<'INSTRUCTIONS'
+# DevDash — AI Agent Task Tracking
+
+<!-- devdash:agent-instructions -->
+
+This project uses **devdash** for task tracking. Use the `devdash` CLI for ALL task
+management. Do NOT use TodoWrite, TaskCreate, `bd`, or markdown files for tracking tasks.
+
+## Install
+
+```bash
+npm install -g github:jasonmassey/devdash-cli
+```
+
+## Session Start
+
+Run `devdash prime` at the start of every session to get live project context
+(health stats, project ID, available commands).
+
+## Essential Commands
+
+| Command | Description |
+|---------|-------------|
+| `devdash ready` | Show issues ready to work (unblocked) |
+| `devdash list` | All open issues |
+| `devdash list --status=in_progress` | Your active work |
+| `devdash show <id>` | Issue details with dependencies |
+| `devdash blocked` | Show blocked issues |
+| `devdash create --title="..." --type=task\|bug\|feature --priority=2` | Create issue |
+| `devdash update <id> --status=in_progress` | Claim work |
+| `devdash close <id>` | Mark complete |
+| `devdash close <id1> <id2> ...` | Close multiple issues |
+| `devdash dep add <issue> <depends-on>` | Add dependency |
+| `devdash stats` | Project statistics |
+
+### Priority Scale
+
+0 = critical, 1 = high, 2 = medium (default), 3 = low, 4 = backlog
+
+### ID Formats
+
+Bead IDs can be full UUIDs, UUID prefixes (e.g. `27bf`), or local IDs (`dev-dash-*`).
+
+## Workflow
+
+### Starting work
+```bash
+devdash ready                              # Find available work
+devdash show <id>                          # Review details
+devdash update <id> --status=in_progress   # Claim it
+```
+
+### Completing work (Session Close Protocol)
+```
+1. git status           (check what changed)
+2. git add <files>      (stage code changes)
+3. git commit -m "..."  (commit code)
+4. git push             (push to remote)
+5. devdash close <id>   (mark task complete)
+```
+
+**NEVER skip the git push.** Work is not done until pushed.
+
+### Creating dependent work
+```bash
+devdash create --title="Implement feature X" --type=feature
+devdash create --title="Write tests for X" --type=task
+devdash dep add <tests-id> <feature-id>   # Tests depend on feature
+```
+INSTRUCTIONS
+}
+
+dd_write_agent_config() {
+  local agent="$1"
+  local force="${2:-false}"
+  local file="" mode="create"
+
+  case "$agent" in
+    claude)   file="CLAUDE.md"; mode="append" ;;
+    codex)    file="AGENTS.md"; mode="append" ;;
+    cursor)   file=".cursor/rules/devdash.md"; mode="create" ;;
+    copilot)  file=".github/copilot-instructions.md"; mode="append" ;;
+    windsurf) file=".windsurfrules"; mode="append" ;;
+    cline)    file=".clinerules"; mode="append" ;;
+    *)
+      echo "Unknown agent: $agent" >&2
+      return 1
+      ;;
+  esac
+
+  # Check if already configured
+  if [ -f "$file" ] && grep -qF "$DD_AGENT_MARKER" "$file" 2>/dev/null; then
+    if [ "$force" = true ]; then
+      if [ "$mode" = "create" ]; then
+        # Standalone file — just overwrite completely below
+        :
+      else
+        # Append-mode file — strip old devdash block, keep the rest
+        local tmp
+        tmp=$(mktemp)
+        awk '
+          /<!-- devdash:agent-instructions -->/{skip=1; next}
+          /<!-- \/devdash:agent-instructions -->/{skip=0; next}
+          !skip{print}
+        ' "$file" > "$tmp"
+        # Trim trailing blank lines
+        local last_line
+        last_line=$(awk 'NF{n=NR} END{print n+0}' "$tmp")
+        if [ "$last_line" -gt 0 ]; then
+          head -n "$last_line" "$tmp" > "$file"
+        else
+          : > "$file"
+        fi
+        rm -f "$tmp"
+      fi
+    else
+      echo "  skip: ${file} (already configured — use --force to overwrite)"
+      return 0
+    fi
+  fi
+
+  local instructions
+  instructions=$(dd_generate_agent_instructions)
+  # Wrap with end marker for clean replacement on --force
+  local block
+  block="${instructions}
+<!-- /devdash:agent-instructions -->"
+
+  # Ensure parent directory exists
+  local dir
+  dir=$(dirname "$file")
+  if [ "$dir" != "." ]; then
+    mkdir -p "$dir"
+  fi
+
+  if [ "$mode" = "create" ] || [ ! -f "$file" ]; then
+    # Write (or overwrite) the whole file
+    echo "$block" > "$file"
+  else
+    # Append to existing file
+    {
+      echo ""
+      echo "$block"
+    } >> "$file"
+  fi
+
+  echo "  wrote: ${file}"
+}
+
+dd_detect_agents() {
+  # Print names of agents whose config locations already exist
+  [ -d ".claude" ] || [ -f "CLAUDE.md" ] && echo "claude"
+  [ -f "AGENTS.md" ] && echo "codex"
+  [ -d ".cursor" ] && echo "cursor"
+  [ -d ".github" ] && echo "copilot"
+  [ -f ".windsurfrules" ] && echo "windsurf"
+  [ -f ".clinerules" ] && echo "cline"
+  return 0
+}
+
+dd_agent_setup() {
+  local agents=() force=false all=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --agent=*) IFS=',' read -ra agents <<< "${1#--agent=}" ;;
+      --all)     all=true ;;
+      --force)   force=true ;;
+      *) echo "Usage: devdash agent-setup [--agent=claude,codex,...] [--all] [--force]" >&2; exit "$DD_EXIT_USER" ;;
+    esac
+    shift
+  done
+
+  local all_agents=(claude codex cursor copilot windsurf cline)
+
+  if [ "$all" = true ]; then
+    agents=("${all_agents[@]}")
+  fi
+
+  # Interactive mode: no --agent and no --all
+  if [ ${#agents[@]} -eq 0 ]; then
+    echo "Detecting AI coding agents..."
+    echo ""
+
+    local detected=()
+    while IFS= read -r a; do
+      [ -n "$a" ] && detected+=("$a")
+    done < <(dd_detect_agents)
+
+    # Display menu
+    local i=1
+    for a in "${all_agents[@]}"; do
+      local mark=" "
+      for d in "${detected[@]}"; do
+        if [ "$a" = "$d" ]; then mark="*"; break; fi
+      done
+      local config_file=""
+      case "$a" in
+        claude)   config_file="CLAUDE.md" ;;
+        codex)    config_file="AGENTS.md" ;;
+        cursor)   config_file=".cursor/rules/devdash.md" ;;
+        copilot)  config_file=".github/copilot-instructions.md" ;;
+        windsurf) config_file=".windsurfrules" ;;
+        cline)    config_file=".clinerules" ;;
+      esac
+      printf "  [%s] %d. %-10s → %s\n" "$mark" "$i" "$a" "$config_file"
+      i=$((i + 1))
+    done
+    echo ""
+    echo "  * = existing config detected"
+    echo ""
+
+    if [ ${#detected[@]} -gt 0 ]; then
+      printf "Install for: [d]etected (%s) / [a]ll / [p]ick numbers? " "$(IFS=','; echo "${detected[*]}")"
+    else
+      printf "Install for: [a]ll / [p]ick numbers (e.g. 1,3,5)? "
+    fi
+    read -r choice </dev/tty 2>/dev/null || choice="a"
+
+    case "$choice" in
+      d|D|detected)
+        if [ ${#detected[@]} -eq 0 ]; then
+          echo "No agents detected. Use 'all' or pick numbers."
+          return
+        fi
+        agents=("${detected[@]}")
+        ;;
+      a|A|all|"")
+        agents=("${all_agents[@]}")
+        ;;
+      p|P|pick)
+        printf "Enter numbers (comma-separated, e.g. 1,3,5): "
+        read -r nums </dev/tty 2>/dev/null || nums=""
+        IFS=',' read -ra picks <<< "$nums"
+        for n in "${picks[@]}"; do
+          n=$(echo "$n" | tr -d ' ')
+          if [ "$n" -ge 1 ] && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
+            agents+=("${all_agents[$((n - 1))]}")
+          fi
+        done
+        ;;
+      *)
+        # Try interpreting as comma-separated numbers
+        IFS=',' read -ra picks <<< "$choice"
+        for n in "${picks[@]}"; do
+          n=$(echo "$n" | tr -d ' ')
+          if [ "$n" -ge 1 ] && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
+            agents+=("${all_agents[$((n - 1))]}")
+          fi
+        done
+        ;;
+    esac
+  fi
+
+  if [ ${#agents[@]} -eq 0 ]; then
+    echo "No agents selected."
+    return
+  fi
+
+  echo ""
+  echo "Writing devdash instructions..."
+
+  # Write the canonical instructions file
+  # .devdash is typically a file (project config), so use .devdash-agents/ dir
+  mkdir -p .devdash-agents
+  dd_generate_agent_instructions > .devdash-agents/agent-instructions.md
+  echo "  wrote: .devdash-agents/agent-instructions.md"
+
+  # Write per-agent configs
+  for agent in "${agents[@]}"; do
+    dd_write_agent_config "$agent" "$force"
+  done
+
+  echo ""
+  echo "Done! Add the new files to git when ready."
+}
+
 dd_help() {
   local cmd
   cmd=$(dd_cmd_name)
@@ -1083,6 +1365,8 @@ Commands:
   stats                  Show project statistics
   sync                   Trigger full reconcile with GitHub
   prime                  Output AI-optimized workflow context (for agent injection)
+  agent-setup            Write devdash instructions for AI agents
+                         (--agent=claude,codex,... | --all) [--force]
   doctor                 Check prerequisites and configuration
   alias-setup            Add 'dd' -> 'devdash' alias to your shell
   self-update            Update devdash to the latest version
@@ -1127,6 +1411,7 @@ case "${1:-help}" in
   stats)   dd_stats ;;
   sync)    dd_sync ;;
   prime)   dd_prime ;;
+  agent-setup) shift; dd_agent_setup "$@" ;;
   doctor)  dd_doctor ;;
   alias-setup) dd_alias_setup ;;
   self-update) dd_self_update ;;

@@ -74,6 +74,7 @@ assert_contains "help lists jobs"           "jobs"           "$DEVDASH" help
 assert_contains "help lists stats"          "stats"          "$DEVDASH" help
 assert_contains "help lists sync"           "sync"           "$DEVDASH" help
 assert_contains "help lists prime"          "prime"          "$DEVDASH" help
+assert_contains "help lists agent-setup"    "agent-setup"    "$DEVDASH" help
 assert_contains "help lists doctor"         "doctor"         "$DEVDASH" help
 assert_contains "help lists alias-setup"    "alias-setup"    "$DEVDASH" help
 assert_contains "help lists self-update"    "self-update"    "$DEVDASH" help
@@ -90,6 +91,45 @@ assert_contains "doctor checks openssl"  "openssl"  "$DEVDASH" doctor
 assert_contains "doctor checks python3"  "python3"  "$DEVDASH" doctor
 assert_contains "doctor checks git"      "git"      "$DEVDASH" doctor
 assert_contains "doctor checks token"    "token"    "$DEVDASH" doctor
+
+# ── Agent Setup ─────────────────────────────────────
+echo "-- agent-setup --"
+_agent_dir="$(mktemp -d)"
+# Create a minimal .devdash so the command doesn't need auth
+echo '{"project_id":"test"}' > "${_agent_dir}/.devdash"
+(
+  cd "$_agent_dir"
+  "$DEVDASH" agent-setup --all --force >/dev/null 2>&1
+)
+# Check files were created
+for _af in CLAUDE.md AGENTS.md .windsurfrules .clinerules .cursor/rules/devdash.md .github/copilot-instructions.md .devdash-agents/agent-instructions.md; do
+  if [ -f "${_agent_dir}/${_af}" ]; then
+    pass "agent-setup creates ${_af}"
+  else
+    fail "agent-setup creates ${_af} (file not found)"
+  fi
+done
+# Check marker is present
+if grep -qF "devdash:agent-instructions" "${_agent_dir}/CLAUDE.md" 2>/dev/null; then
+  pass "agent config contains marker"
+else
+  fail "agent config contains marker"
+fi
+# Idempotency: re-run without --force should skip
+_skip_output=$(cd "$_agent_dir" && "$DEVDASH" agent-setup --all 2>&1)
+if echo "$_skip_output" | grep -qF "already configured"; then
+  pass "agent-setup skips existing (idempotent)"
+else
+  fail "agent-setup skips existing (idempotent)"
+fi
+# --force should overwrite
+_force_output=$(cd "$_agent_dir" && "$DEVDASH" agent-setup --all --force 2>&1)
+if echo "$_force_output" | grep -qF "wrote:"; then
+  pass "agent-setup --force overwrites"
+else
+  fail "agent-setup --force overwrites"
+fi
+rm -rf "$_agent_dir"
 
 # ── Error handling ───────────────────────────────────
 echo "-- error handling --"

@@ -96,7 +96,29 @@ From here on, the examples use `devdash`, but you can substitute `dd` if you set
 
 ---
 
-## Step 5: Explore your project
+## Step 5: Configure your AI agents (optional)
+
+If you use AI coding agents (Claude Code, Codex, Cursor, Copilot, Windsurf, Cline), you can auto-generate config files so they know to use devdash for task tracking:
+
+```bash
+devdash agent-setup
+```
+
+This auto-detects which agents you use and writes the appropriate config files. You can also specify agents directly:
+
+```bash
+devdash agent-setup --agent=claude,codex    # Just these two
+devdash agent-setup --all                   # All supported agents
+devdash agent-setup --all --force           # Overwrite existing configs
+```
+
+Each agent gets instructions telling it to use `devdash` commands, run `devdash prime` at session start, and follow the git-push-before-close workflow.
+
+The canonical instructions are also saved to `.devdash-agents/agent-instructions.md` for reference.
+
+---
+
+## Step 6: Explore your project
 
 See what's ready to work on:
 
