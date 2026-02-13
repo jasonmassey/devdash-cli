@@ -90,29 +90,29 @@ During `init`, you'll be asked if you want to alias `dd` to `devdash`. If you sa
 devdash alias-setup
 ```
 
-From here on, the examples use `devdash`, but you can substitute `dd` if you set up the alias.
+From here on, the examples use `dd`. If you skipped the alias, substitute `devdash` everywhere.
 
-> **Heads up:** This shadows `/usr/bin/dd` (a Unix disk-copy utility). If you use that tool regularly, skip the alias.
+> **Heads up:** This shadows `/usr/bin/dd` (a Unix disk-copy utility). If you use that tool regularly, skip the alias and use the full name `devdash`.
 
 ---
 
 ## Step 5: Configure your AI agents (optional)
 
-If you use AI coding agents (Claude Code, Codex, Cursor, Copilot, Windsurf, Cline), you can auto-generate config files so they know to use devdash for task tracking:
+If you use AI coding agents (Claude Code, Codex, Cursor, Copilot, Windsurf, Cline), you can auto-generate config files so they know to use `dd` for task tracking:
 
 ```bash
-devdash agent-setup
+dd agent-setup
 ```
 
 This auto-detects which agents you use and writes the appropriate config files. You can also specify agents directly:
 
 ```bash
-devdash agent-setup --agent=claude,codex    # Just these two
-devdash agent-setup --all                   # All supported agents
-devdash agent-setup --all --force           # Overwrite existing configs
+dd agent-setup --agent=claude,codex    # Just these two
+dd agent-setup --all                   # All supported agents
+dd agent-setup --all --force           # Overwrite existing configs
 ```
 
-Each agent gets instructions telling it to use `devdash` commands, run `devdash prime` at session start, and follow the git-push-before-close workflow.
+Each agent gets instructions telling it to use `dd` commands, run `dd prime` at session start, and follow the git-push-before-close workflow.
 
 The canonical instructions are also saved to `.devdash-agents/agent-instructions.md` for reference.
 
@@ -123,13 +123,13 @@ The canonical instructions are also saved to `.devdash-agents/agent-instructions
 See what's ready to work on:
 
 ```bash
-devdash ready
+dd ready
 ```
 
 This shows all unblocked tasks sorted by priority. Pick one and dig in:
 
 ```bash
-devdash show <id>
+dd show <id>
 ```
 
 You can use the full UUID, a short prefix (like `27bf`), or a local ID (like `dev-dash-42`). The CLI figures it out.
@@ -142,21 +142,21 @@ Here's the day-to-day loop:
 
 ```bash
 # What needs doing?
-devdash ready
+dd ready
 
 # Claim a task
-devdash update <id> --status=in_progress
+dd update <id> --status=in_progress
 
 # ... write code, fix bugs, ship features ...
 
 # Done!
-devdash close <id>
+dd close <id>
 ```
 
 ### Create a task
 
 ```bash
-devdash create --title="Fix login redirect" --type=bug --priority=1
+dd create --title="Fix login redirect" --type=bug --priority=1
 ```
 
 Priority runs from 0 (critical) to 4 (backlog). Type can be `task`, `bug`, or `feature`.
@@ -166,17 +166,17 @@ Priority runs from 0 (critical) to 4 (backlog). Type can be `task`, `bug`, or `f
 Some things need to happen in order:
 
 ```bash
-devdash create --title="Write API endpoint" --type=task
-devdash create --title="Write tests for endpoint" --type=task
-devdash dep add <tests-id> <endpoint-id>
+dd create --title="Write API endpoint" --type=task
+dd create --title="Write tests for endpoint" --type=task
+dd dep add <tests-id> <endpoint-id>
 ```
 
-Now the tests task won't show up in `devdash ready` until the endpoint task is closed.
+Now the tests task won't show up in `dd ready` until the endpoint task is closed.
 
 ### Check the big picture
 
 ```bash
-devdash stats
+dd stats
 ```
 
 ```
@@ -214,10 +214,10 @@ Dev-Dash is designed to work alongside AI coding agents like Claude Code.
 ### Inject context into your agent session
 
 ```bash
-devdash prime
+dd prime
 ```
 
-This outputs a structured block of context — your project name, health stats, available commands, and workflow patterns. Set it up as a session hook so your agent always knows how to use `devdash`.
+This outputs a structured block of context — your project name, health stats, available commands, and workflow patterns. Set it up as a session hook so your agent always knows how to use `dd`.
 
 ### Dispatch agents from the dashboard
 
@@ -226,9 +226,9 @@ In the **Agents** tab, you can assign a task to an AI agent and watch it work. T
 Check on agent jobs from the CLI:
 
 ```bash
-devdash jobs              # Recent runs
-devdash jobs show <id>    # Details + failure analysis
-devdash jobs failures     # What went wrong
+dd jobs              # Recent runs
+dd jobs show <id>    # Details + failure analysis
+dd jobs failures     # What went wrong
 ```
 
 ---
@@ -238,9 +238,9 @@ devdash jobs failures     # What went wrong
 Each repo gets its own `.devdash` file. Just run `init` in each one:
 
 ```bash
-cd ~/projects/frontend && devdash init
-cd ~/projects/backend && devdash init
-cd ~/projects/infra && devdash init
+cd ~/projects/frontend && dd init
+cd ~/projects/backend && dd init
+cd ~/projects/infra && dd init
 ```
 
 The CLI reads `.devdash` to know which project you're working in. No global state to juggle.
@@ -251,27 +251,28 @@ The CLI reads `.devdash` to know which project you're working in. No global stat
 
 | Command | What it does |
 |---------|-------------|
-| `devdash login` | Sign in via browser |
-| `devdash init` | Link repo to project |
-| `devdash ready` | Show unblocked tasks |
-| `devdash list` | All open tasks |
-| `devdash show <id>` | Task details |
-| `devdash create --title="..."` | New task |
-| `devdash update <id> --status=in_progress` | Claim work |
-| `devdash close <id>` | Mark done |
-| `devdash dep add <a> <b>` | A depends on B |
-| `devdash blocked` | Show stuck tasks |
-| `devdash stats` | Project health |
-| `devdash prime` | AI agent context |
-| `devdash doctor` | Check setup |
+| `dd login` | Sign in via browser |
+| `dd init` | Link repo to project |
+| `dd ready` | Show unblocked tasks |
+| `dd list` | All open tasks |
+| `dd show <id>` | Task details |
+| `dd create --title="..."` | New task |
+| `dd update <id> --status=in_progress` | Claim work |
+| `dd close <id>` | Mark done |
+| `dd dep add <a> <b>` | A depends on B |
+| `dd blocked` | Show stuck tasks |
+| `dd stats` | Project health |
+| `dd prime` | AI agent context |
+| `dd agent-setup` | Configure AI agents |
+| `dd doctor` | Check setup |
 
 ---
 
 ## Troubleshooting
 
-**"Not logged in"** — Run `devdash login`.
+**"Not logged in"** — Run `dd login`.
 
-**"No project configured"** — Run `devdash init` inside your repo.
+**"No project configured"** — Run `dd init` inside your repo.
 
 **Login port in use** — The CLI auto-tries ports 18787-18792. If all are busy, free one up and retry.
 
@@ -279,7 +280,7 @@ The CLI reads `.devdash` to know which project you're working in. No global stat
 
 **Tasks not syncing with GitHub** — Check your GitHub connection in the web dashboard under Settings. You may need to re-authorize.
 
-When in doubt: `devdash doctor` checks everything.
+When in doubt: `dd doctor` checks everything.
 
 ---
 
