@@ -262,7 +262,7 @@ dd_init() {
   # Detect GitHub remote
   local remote=""
   if git rev-parse --is-inside-work-tree &>/dev/null; then
-    remote=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.*)\.git$#\1#; s#.*github\.com[:/](.*)$#\1#')
+    remote=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.*)\.git$#\1#; s#.*github\.com[:/](.*)$#\1#') || remote=""
   fi
 
   # Fetch projects
