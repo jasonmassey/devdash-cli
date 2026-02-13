@@ -380,6 +380,11 @@ dd_create() {
     exit "$DD_EXIT_USER"
   fi
 
+  # Resolve parent short ID to full UUID
+  if [ -n "$parent" ]; then
+    parent=$(dd_resolve_id "$parent" "$pid") || exit 1
+  fi
+
   local body
   body=$(jq -n \
     --arg projectId "$pid" \
@@ -418,6 +423,11 @@ dd_update() {
       --title=*) body=$(echo "$body" | jq --arg v "${1#--title=}" '. + {subject: $v}') ;;
       --description=*) body=$(echo "$body" | jq --arg v "${1#--description=}" '. + {description: $v}') ;;
       --pre-instructions=*) body=$(echo "$body" | jq --arg v "${1#--pre-instructions=}" '. + {preInstructions: $v}') ;;
+      --parent=*)
+        local parent_uuid
+        parent_uuid=$(dd_resolve_id "${1#--parent=}" "$pid") || exit 1
+        body=$(echo "$body" | jq --arg v "$parent_uuid" '. + {parentBeadId: $v}')
+        ;;
     esac
     shift
   done
