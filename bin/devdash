@@ -650,9 +650,18 @@ dd_analyze() {
   # Fetch the bead to get prompt text
   local bead
   bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
-  local prompt subject
-  prompt=$(echo "$bead" | dd_jq -r '(.preInstructions // empty), (.description // empty), .subject | select(length > 0)' | head -1)
+  local prompt subject description
   subject=$(echo "$bead" | dd_jq -r '.subject')
+  description=$(echo "$bead" | dd_jq -r '.description // empty | select(length > 0)')
+  # Always use subject + description for analysis prompt (not preInstructions).
+  # The analyzer needs to see the task intent, not stale agent instructions.
+  if [ -n "$description" ]; then
+    prompt="${subject}
+
+${description}"
+  else
+    prompt="$subject"
+  fi
 
   echo "Analyzing: ${subject}" >&2
   echo "" >&2
