@@ -635,6 +635,60 @@ dd_jobs() {
   esac
 }
 
+dd_analyze() {
+  if [ -z "${1:-}" ]; then
+    echo "Usage: devdash analyze <bead-id>" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local pid
+  pid=$(dd_project_id)
+  local bead_id="$1"
+  local uuid
+  uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
+
+  # Fetch the bead to get prompt text
+  local bead
+  bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
+  local prompt subject
+  prompt=$(echo "$bead" | dd_jq -r '(.preInstructions // empty), (.description // empty), .subject | select(length > 0)' | head -1)
+  subject=$(echo "$bead" | dd_jq -r '.subject')
+
+  echo "Analyzing: ${subject}" >&2
+  echo "" >&2
+
+  local body
+  body=$(jq -n \
+    --arg projectId "$pid" \
+    --arg beadId "$uuid" \
+    --arg prompt "$prompt" \
+    '{projectId: $projectId, beadId: $beadId, prompt: $prompt}')
+
+  local result
+  result=$(dd_api POST "/jobs/analyze" -d "$body")
+
+  # Display analysis
+  echo "$result" | dd_jq -r '"Complexity:  \(.estimatedComplexity)
+Files:       \(.affectedFiles | join(", "))
+Modules:     \(.affectedModules | join(", "))
+Subdivide:   \(.shouldSubdivide)
+
+## Reasoning
+\(.reasoning)
+
+## Agent Instructions
+\(.agentInstructions)"'
+
+  # Show if subtasks were created
+  local decomposed
+  decomposed=$(echo "$result" | dd_jq -r '.decomposed // empty')
+  if [ -n "$decomposed" ] && [ "$decomposed" != "null" ]; then
+    echo ""
+    echo "## Decomposed into subtasks:"
+    echo "$decomposed" | dd_jq -r '.[] | "  - \(.id[0:8]) \(.subject)"'
+  fi
+}
+
 dd_dispatch() {
   if [ -z "${1:-}" ]; then
     echo "Usage: devdash dispatch <bead-id> [--priority=N] [--worker=e2b|docker|railway]" >&2
@@ -662,7 +716,7 @@ dd_dispatch() {
   local bead
   bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
   local prompt subject
-  prompt=$(echo "$bead" | dd_jq -r '.preInstructions // .description // .subject')
+  prompt=$(echo "$bead" | dd_jq -r '(.preInstructions // empty), (.description // empty), .subject | select(length > 0)' | head -1)
   subject=$(echo "$bead" | dd_jq -r '.subject')
 
   local body
@@ -1527,6 +1581,7 @@ Commands:
   close <id> [<id>...]   Close one or more beads
   delete <id> [--force] [--cascade]
                          Delete a bead (--cascade deletes children too)
+  analyze <bead-id>      Analyze a bead: complexity, files, agent instructions
   dispatch <bead-id>     Dispatch a bead as an agent job (--priority, --worker)
   dep add <id> <dep-id>  Add dependency (id depends on dep-id)
   jobs [list]            List recent jobs
@@ -1586,6 +1641,7 @@ case "${1:-help}" in
   update)  shift; dd_update "$@" ;;
   close)   shift; dd_close "$@" ;;
   delete)  shift; dd_delete "$@" ;;
+  analyze)  shift; dd_analyze "$@" ;;
   dispatch) shift; dd_dispatch "$@" ;;
   dep)
     shift
