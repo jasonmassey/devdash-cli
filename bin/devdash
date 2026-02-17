@@ -1384,11 +1384,24 @@ Commands:
   version                Show version
   help                   Show this help
 
+Global flags:
+  --project=<id>         Override project for this command (UUID or prefix)
+
 Bead IDs can be either UUID or local ID (dev-dash-*).
 HELP
 }
 
 # ── Main ─────────────────────────────────────────────────────────
+
+# Extract global --project flag before dispatching commands
+_args=()
+for _arg in "$@"; do
+  case "$_arg" in
+    --project=*) export DD_PROJECT_ID="${_arg#--project=}" ;;
+    *) _args+=("$_arg") ;;
+  esac
+done
+set -- "${_args[@]+"${_args[@]}"}"
 
 case "${1:-help}" in
   login)   dd_login ;;
