@@ -735,13 +735,22 @@ dd_dispatch() {
 
   local result
   result=$(dd_api POST "/jobs" -d "$body")
-  local job_id status
-  job_id=$(echo "$result" | dd_jq -r '.id')
-  status=$(echo "$result" | dd_jq -r '.status')
+  local job_id status mode
+  job_id=$(echo "$result" | dd_jq -r '.id // .run.id // empty')
+  status=$(echo "$result" | dd_jq -r '.status // .run.status // empty')
+  mode=$(echo "$result" | dd_jq -r '.dispatchMode // "unknown"')
+
+  if [ -z "$job_id" ]; then
+    echo "Dispatch response:" >&2
+    echo "$result" | dd_jq '.' >&2
+    echo "Error: no job ID in response" >&2
+    exit "$DD_EXIT_API"
+  fi
 
   echo "Dispatched: ${subject}"
   echo "  Job:    ${job_id}"
   echo "  Status: ${status}"
+  echo "  Mode:   ${mode}"
   echo "  Bead:   ${uuid}"
 }
 
