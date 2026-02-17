@@ -47,7 +47,7 @@ dd_project_id() {
   exit "$DD_EXIT_CONFIG"
 }
 
-dd_token() {
+dd_get_token() {
   if [ -f "$DD_TOKEN_FILE" ]; then
     cat "$DD_TOKEN_FILE"
   else
@@ -60,7 +60,7 @@ dd_api() {
   local method=$1 endpoint=$2
   shift 2
   local token url tmpfile http_code body
-  token=$(dd_token) || return $?
+  token=$(dd_get_token) || return $?
   url="$(dd_api_url)/api${endpoint}"
   tmpfile=$(mktemp)
   http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X "$method" \
@@ -1351,6 +1351,73 @@ dd_agent_setup() {
   echo "Done! Add the new files to git when ready."
 }
 
+dd_token_dispatch() {
+  local subcmd="${1:-list}"
+  shift 2>/dev/null || true
+
+  case "$subcmd" in
+    create)
+      local name="${1:-CLI token}"
+      local result
+      result=$(dd_api POST "/auth/tokens" -d "$(jq -n --arg name "$name" '{name: $name}')")
+      local token_val token_prefix token_id
+      token_val=$(echo "$result" | dd_jq -r '.token')
+      token_prefix=$(echo "$result" | dd_jq -r '.tokenPrefix')
+      token_id=$(echo "$result" | dd_jq -r '.id')
+
+      echo ""
+      echo "Token created! Copy it now — it won't be shown again."
+      echo ""
+      echo "  ${token_val}"
+      echo ""
+      echo "  ID:     ${token_id}"
+      echo "  Prefix: ${token_prefix}"
+      echo "  Name:   ${name}"
+      ;;
+    list|ls)
+      local tokens
+      tokens=$(dd_api GET "/auth/tokens")
+      local count
+      count=$(echo "$tokens" | dd_jq 'length')
+      if [ "$count" -eq 0 ]; then
+        echo "No API tokens. Create one with: devdash token create \"my token\""
+        return
+      fi
+      echo "$tokens" | dd_jq -r '.[] | "\(if .revoked_at then "✗" else "✓" end) \(.token_prefix)...  \(.name)  (created \(.created_at // "?"))\(if .revoked_at then "  [revoked]" else "" end)  id:\(.id[0:8])"'
+      ;;
+    revoke)
+      if [ -z "${1:-}" ]; then
+        echo "Usage: devdash token revoke <token-id>" >&2
+        exit "$DD_EXIT_USER"
+      fi
+      local token_id="$1"
+      # Support short prefix matching
+      if [ ${#token_id} -lt 36 ]; then
+        local tokens
+        tokens=$(dd_api GET "/auth/tokens")
+        local match
+        match=$(echo "$tokens" | dd_jq -r ".[] | select(.id | startswith(\"$token_id\")) | .id")
+        local match_count
+        match_count=$(echo "$match" | grep -c . 2>/dev/null || echo 0)
+        if [ "$match_count" -eq 0 ] || [ -z "$match" ]; then
+          echo "No token found matching: $token_id" >&2
+          exit "$DD_EXIT_USER"
+        elif [ "$match_count" -gt 1 ]; then
+          echo "Ambiguous prefix matches $match_count tokens" >&2
+          exit "$DD_EXIT_USER"
+        fi
+        token_id="$match"
+      fi
+      dd_api DELETE "/auth/tokens/${token_id}" > /dev/null
+      echo "Revoked: ${token_id}"
+      ;;
+    *)
+      echo "Usage: devdash token [create \"name\"|list|revoke <id>]" >&2
+      exit "$DD_EXIT_USER"
+      ;;
+  esac
+}
+
 dd_help() {
   local cmd
   cmd=$(dd_cmd_name)
@@ -1362,6 +1429,9 @@ Usage: ${cmd} <command> [args]
 Commands:
   login                  Authenticate via browser (stores token locally)
   init                   Link current repo to a dev-dash project
+  token create "name"    Create a new API token (dd_ prefix, for DD Red etc.)
+  token list             List your API tokens
+  token revoke <id>      Revoke an API token
   project create         Create a new project (--name, --repo, --description)
   project list           List all your projects
   project delete <id>    Delete a project (--force to skip confirmation)
@@ -1415,6 +1485,7 @@ set -- "${_args[@]+"${_args[@]}"}"
 case "${1:-help}" in
   login)   dd_login ;;
   init)    dd_init ;;
+  token)   shift; dd_token_dispatch "$@" ;;
   project)
     shift
     case "${1:-}" in
