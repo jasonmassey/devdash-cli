@@ -30,6 +30,11 @@ dd_api_url() {
 }
 
 dd_project_id() {
+  # Explicit env var overrides .devdash file (allows cross-project commands)
+  if [ -n "${DD_PROJECT_ID:-}" ]; then
+    echo "$DD_PROJECT_ID"
+    return
+  fi
   if [ -f "$DD_PROJECT_FILE" ]; then
     local pid
     pid=$(jq -r '.project_id // empty' "$DD_PROJECT_FILE" 2>/dev/null)
@@ -37,10 +42,6 @@ dd_project_id() {
       echo "$pid"
       return
     fi
-  fi
-  if [ -n "${DD_PROJECT_ID:-}" ]; then
-    echo "$DD_PROJECT_ID"
-    return
   fi
   echo "No project configured. Run: devdash init" >&2
   exit "$DD_EXIT_CONFIG"
