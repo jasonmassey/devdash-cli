@@ -29,10 +29,36 @@ dd_api_url() {
   echo "${DD_API_URL:-https://dev-dash-server-production.up.railway.app}"
 }
 
+dd_resolve_project_id() {
+  local raw="$1"
+  # Full UUID — use directly
+  if [[ ${#raw} -eq 36 && "$raw" == *-*-*-*-* ]]; then
+    echo "$raw"
+    return
+  fi
+  # Prefix — resolve against project list
+  local projects
+  projects=$(dd_api GET "/projects" 2>/dev/null) || { echo "$raw"; return; }
+  local matches
+  matches=$(echo "$projects" | jq -r "[.[] | select(.id | startswith(\"$raw\"))] | .[].id")
+  if [ -z "$matches" ]; then
+    echo "No project found matching prefix: $raw" >&2
+    exit "$DD_EXIT_USER"
+  fi
+  local count
+  count=$(echo "$matches" | wc -l | tr -d ' ')
+  if [ "$count" -gt 1 ]; then
+    echo "Ambiguous project prefix '$raw' matches $count projects:" >&2
+    echo "$matches" | head -5 >&2
+    exit "$DD_EXIT_USER"
+  fi
+  echo "$matches"
+}
+
 dd_project_id() {
   # Explicit env var overrides .devdash file (allows cross-project commands)
   if [ -n "${DD_PROJECT_ID:-}" ]; then
-    echo "$DD_PROJECT_ID"
+    dd_resolve_project_id "$DD_PROJECT_ID"
     return
   fi
   if [ -f "$DD_PROJECT_FILE" ]; then
