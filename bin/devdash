@@ -635,6 +635,62 @@ dd_jobs() {
   esac
 }
 
+dd_dispatch() {
+  if [ -z "${1:-}" ]; then
+    echo "Usage: devdash dispatch <bead-id> [--priority=N] [--worker=e2b|docker|railway]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local pid
+  pid=$(dd_project_id)
+  local bead_id="$1"
+  shift
+  local priority="" worker=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --priority=*) priority="${1#--priority=}" ;;
+      --worker=*) worker="${1#--worker=}" ;;
+    esac
+    shift
+  done
+
+  local uuid
+  uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
+
+  # Fetch the bead to get prompt from preInstructions or description
+  local bead
+  bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
+  local prompt subject
+  prompt=$(echo "$bead" | dd_jq -r '.preInstructions // .description // .subject')
+  subject=$(echo "$bead" | dd_jq -r '.subject')
+
+  local body
+  body=$(jq -n \
+    --arg projectId "$pid" \
+    --arg beadId "$uuid" \
+    --arg prompt "$prompt" \
+    '{projectId: $projectId, beadId: $beadId, prompt: $prompt}')
+
+  if [ -n "$priority" ]; then
+    body=$(echo "$body" | jq --argjson p "$priority" '. + {priority: $p}')
+  fi
+  if [ -n "$worker" ]; then
+    body=$(echo "$body" | jq --arg w "$worker" '. + {workerType: $w}')
+  fi
+
+  local result
+  result=$(dd_api POST "/jobs" -d "$body")
+  local job_id status
+  job_id=$(echo "$result" | dd_jq -r '.id')
+  status=$(echo "$result" | dd_jq -r '.status')
+
+  echo "Dispatched: ${subject}"
+  echo "  Job:    ${job_id}"
+  echo "  Status: ${status}"
+  echo "  Bead:   ${uuid}"
+}
+
 dd_blocked() {
   local pid
   pid=$(dd_project_id)
@@ -1471,6 +1527,7 @@ Commands:
   close <id> [<id>...]   Close one or more beads
   delete <id> [--force] [--cascade]
                          Delete a bead (--cascade deletes children too)
+  dispatch <bead-id>     Dispatch a bead as an agent job (--priority, --worker)
   dep add <id> <dep-id>  Add dependency (id depends on dep-id)
   jobs [list]            List recent jobs
   jobs show <id>         Show job details + failure analysis
@@ -1529,6 +1586,7 @@ case "${1:-help}" in
   update)  shift; dd_update "$@" ;;
   close)   shift; dd_close "$@" ;;
   delete)  shift; dd_delete "$@" ;;
+  dispatch) shift; dd_dispatch "$@" ;;
   dep)
     shift
     case "${1:-}" in
