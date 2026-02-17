@@ -451,23 +451,27 @@ dd_close() {
 
 dd_delete() {
   local force=false
+  local cascade=false
   local bead_ids=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --force|-f) force=true ;;
+      --cascade) cascade=true ;;
       *) bead_ids+=("$1") ;;
     esac
     shift
   done
 
   if [ ${#bead_ids[@]} -eq 0 ]; then
-    echo "Usage: devdash delete <bead-id> [<bead-id>...] [--force]" >&2
+    echo "Usage: devdash delete <bead-id> [<bead-id>...] [--force] [--cascade]" >&2
     exit "$DD_EXIT_USER"
   fi
 
   local pid
   pid=$(dd_project_id)
+  local cascade_param=""
+  [ "$cascade" = true ] && cascade_param="&cascade=true"
 
   for bead_id in "${bead_ids[@]}"; do
     local uuid
@@ -477,7 +481,11 @@ dd_delete() {
       local bead subject
       bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
       subject=$(echo "$bead" | dd_jq -r '.subject')
-      printf "Delete '%s'? [y/N] " "$subject"
+      if [ "$cascade" = true ]; then
+        printf "Delete '%s' and all children? [y/N] " "$subject"
+      else
+        printf "Delete '%s'? [y/N] " "$subject"
+      fi
       read -r answer </dev/tty 2>/dev/null || answer="n"
       case "$answer" in
         [Yy]|[Yy]es) ;;
@@ -485,7 +493,7 @@ dd_delete() {
       esac
     fi
 
-    dd_api DELETE "/beads/${uuid}?projectId=${pid}" > /dev/null
+    dd_api DELETE "/beads/${uuid}?projectId=${pid}${cascade_param}" > /dev/null
     echo "Deleted: ${bead_id}"
   done
 }
@@ -1365,7 +1373,8 @@ Commands:
   update <id> --key=val  Update bead fields (--status, --priority, --owner, --title,
                          --description, --pre-instructions)
   close <id> [<id>...]   Close one or more beads
-  delete <id> [--force]  Delete a bead (with confirmation)
+  delete <id> [--force] [--cascade]
+                         Delete a bead (--cascade deletes children too)
   dep add <id> <dep-id>  Add dependency (id depends on dep-id)
   jobs [list]            List recent jobs
   jobs show <id>         Show job details + failure analysis
