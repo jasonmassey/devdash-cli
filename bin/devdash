@@ -5,6 +5,9 @@
 
 set -euo pipefail
 
+# Clean exit on Ctrl+C — suppress bash noise from errexit + pipefail
+trap 'printf "\n"; exit 130' INT
+
 DD_VERSION="0.2.0"
 DD_CONFIG_DIR="${DD_CONFIG_DIR:-${HOME}/.config/dev-dash}"
 DD_TOKEN_FILE="${DD_TOKEN_FILE:-${DD_CONFIG_DIR}/token}"
@@ -267,9 +270,13 @@ dd_login() {
     exit "$DD_EXIT_CONFIG"
   fi
 
-  # Start a temporary Python HTTP server for the OAuth callback
+  # Start a temporary Python HTTP server for the OAuth callback (120s timeout)
   python3 -c "
-import http.server, urllib.parse, threading
+import http.server, urllib.parse, threading, signal, sys
+
+# Exit cleanly on SIGTERM/SIGINT — no traceback
+signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+signal.signal(signal.SIGINT, lambda *a: sys.exit(0))
 
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -293,20 +300,21 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 s = http.server.HTTPServer(('127.0.0.1', ${port}), H)
-s.timeout = 60
+# Auto-shutdown after 120s if no callback received
+threading.Timer(120, s.shutdown).start()
 s.serve_forever()
 " &
   local server_pid=$!
 
   # Clean up server on Ctrl+C
-  trap 'kill $server_pid 2>/dev/null; rm -f "$tmpfile"; exit 130' INT
+  trap 'printf "\nCancelled.\n"; kill $server_pid 2>/dev/null; rm -f "$tmpfile"; exit 130' INT
 
   local url="${api_url}/api/auth/cli-token?port=${port}&nonce=${nonce}"
   echo "Opening browser for authentication..."
-  echo "Listening on port ${port}..."
+  echo "Waiting for callback (up to 2 minutes)..."
   open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open this URL in your browser: $url"
 
-  # Wait for callback (up to ~60s)
+  # Wait for server to exit (callback received or timeout)
   wait "$server_pid" 2>/dev/null || true
   trap - INT
 
