@@ -55,6 +55,33 @@ dd_resolve_project_id() {
   echo "$matches"
 }
 
+# Resolve a token ID prefix to a full UUID
+dd_resolve_token_id() {
+  local token_id="$1"
+  # Full UUID — use directly
+  if [[ ${#token_id} -eq 36 && "$token_id" == *-*-*-*-* ]]; then
+    echo "$token_id"
+    return
+  fi
+  # Short prefix — fetch all tokens and match
+  local tokens
+  tokens=$(dd_api GET "/auth/tokens")
+  local matches
+  matches=$(echo "$tokens" | dd_jq -r "[.[] | select(.id | startswith(\"$token_id\"))] | .[].id")
+  if [ -z "$matches" ]; then
+    echo "No token found matching prefix: $token_id" >&2
+    return 1
+  fi
+  local count
+  count=$(echo "$matches" | wc -l | tr -d ' ')
+  if [ "$count" -gt 1 ]; then
+    echo "Ambiguous token prefix '$token_id' matches $count tokens:" >&2
+    echo "$matches" | head -5 >&2
+    return 1
+  fi
+  echo "$matches"
+}
+
 dd_project_id() {
   # Explicit env var overrides .devdash file (allows cross-project commands)
   if [ -n "${DD_PROJECT_ID:-}" ]; then
@@ -122,11 +149,23 @@ dd_jq() {
   }
 }
 
-# Fetch all beads for a project (unwraps paginated response)
+# Fetch all beads for a project (handles pagination)
 dd_fetch_beads() {
-  local pid="$1" result
-  result=$(dd_api GET "/beads?projectId=${pid}&limit=500") || return $?
-  echo "$result" | dd_jq '.data // .'
+  local pid="$1"
+  local all="[]" cursor="" page
+  while true; do
+    local url="/beads?projectId=${pid}&limit=500"
+    [ -n "$cursor" ] && url="${url}&cursor=${cursor}"
+    page=$(dd_api GET "$url") || return $?
+    local data
+    data=$(echo "$page" | dd_jq '.data // .')
+    all=$(echo "$all" "$data" | jq -s '.[0] + .[1]')
+    cursor=$(echo "$page" | dd_jq -r '.nextCursor // empty')
+    if [ -z "$cursor" ] || [ "$cursor" = "null" ]; then
+      break
+    fi
+  done
+  echo "$all"
 }
 
 # Fetch all jobs for a project (unwraps paginated response)
@@ -137,14 +176,27 @@ dd_fetch_jobs() {
 }
 
 # Resolve a bead ID: handles dev-dash-* local IDs and UUID prefixes
-# Usage: uuid=$(dd_resolve_id "$bead_id" "$project_id")
+# Usage: uuid=$(dd_resolve_id "$bead_id" "$project_id" ["$cached_beads"])
+# Pass cached_beads (JSON array) as $3 to skip the API fetch.
 dd_resolve_id() {
-  local bead_id="$1" pid="$2"
+  local bead_id="$1" pid="$2" cached_beads="${3:-}"
+
+  # Full UUID (36 chars with dashes) — use directly
+  if [[ ${#bead_id} -eq 36 && "$bead_id" == *-*-*-*-* ]]; then
+    echo "$bead_id"
+    return
+  fi
+
+  # Need beads for local ID or prefix lookup
+  local all_beads
+  if [ -n "$cached_beads" ]; then
+    all_beads="$cached_beads"
+  else
+    all_beads=$(dd_fetch_beads "$pid")
+  fi
 
   # dev-dash-* local IDs — resolve via localBeadId field
   if [[ "$bead_id" == dev-dash-* ]]; then
-    local all_beads
-    all_beads=$(dd_fetch_beads "$pid")
     local uuid
     uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
     if [ -z "$uuid" ]; then
@@ -155,15 +207,7 @@ dd_resolve_id() {
     return
   fi
 
-  # Full UUID (36 chars with dashes) — use directly
-  if [[ ${#bead_id} -eq 36 && "$bead_id" == *-*-*-*-* ]]; then
-    echo "$bead_id"
-    return
-  fi
-
-  # Short prefix — fetch all beads and match
-  local all_beads
-  all_beads=$(dd_fetch_beads "$pid")
+  # Short prefix — match against all beads
   local matches
   matches=$(echo "$all_beads" | jq -r "[.[] | select(.id | startswith(\"$bead_id\"))] | .[].id")
 
@@ -460,7 +504,7 @@ dd_update() {
   done
 
   dd_api PATCH "/beads/${uuid}" -d "$body" > /dev/null
-  echo "Updated: ${bead_id}"
+  echo "Updated: ${uuid}"
 }
 
 dd_close() {
@@ -471,7 +515,7 @@ dd_close() {
     local uuid
     uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
     dd_api PATCH "/beads/${uuid}" -d "{\"projectId\": \"${pid}\", \"status\": \"completed\"}" > /dev/null
-    echo "Closed: ${bead_id}"
+    echo "Closed: ${uuid}"
   done
 }
 
@@ -520,7 +564,7 @@ dd_delete() {
     fi
 
     dd_api DELETE "/beads/${uuid}?projectId=${pid}${cascade_param}" > /dev/null
-    echo "Deleted: ${bead_id}"
+    echo "Deleted: ${uuid}"
   done
 }
 
@@ -529,12 +573,13 @@ dd_dep_add() {
   local pid
   pid=$(dd_project_id)
 
-  local issue_uuid dep_uuid
-  issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
-  dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
-
+  # Fetch beads once, reuse for both resolves and dependency lookup
   local all_beads
   all_beads=$(dd_fetch_beads "$pid")
+
+  local issue_uuid dep_uuid
+  issue_uuid=$(dd_resolve_id "$issue" "$pid" "$all_beads") || exit 1
+  dep_uuid=$(dd_resolve_id "$depends_on" "$pid" "$all_beads") || exit 1
 
   # Get current blockedBy for the issue
   local current
@@ -942,6 +987,9 @@ dd_project_delete() {
     echo "Usage: devdash project delete <project-id> [--force]" >&2
     exit "$DD_EXIT_USER"
   fi
+
+  # Resolve short prefix to full UUID
+  project_id=$(dd_resolve_project_id "$project_id")
 
   if [ "$force" != true ]; then
     local project pname
@@ -1544,24 +1592,8 @@ dd_token_dispatch() {
         echo "Usage: devdash token revoke <token-id>" >&2
         exit "$DD_EXIT_USER"
       fi
-      local token_id="$1"
-      # Support short prefix matching
-      if [ ${#token_id} -lt 36 ]; then
-        local tokens
-        tokens=$(dd_api GET "/auth/tokens")
-        local match
-        match=$(echo "$tokens" | dd_jq -r ".[] | select(.id | startswith(\"$token_id\")) | .id")
-        local match_count
-        match_count=$(echo "$match" | grep -c . 2>/dev/null || echo 0)
-        if [ "$match_count" -eq 0 ] || [ -z "$match" ]; then
-          echo "No token found matching: $token_id" >&2
-          exit "$DD_EXIT_USER"
-        elif [ "$match_count" -gt 1 ]; then
-          echo "Ambiguous prefix matches $match_count tokens" >&2
-          exit "$DD_EXIT_USER"
-        fi
-        token_id="$match"
-      fi
+      local token_id
+      token_id=$(dd_resolve_token_id "$1") || exit 1
       dd_api DELETE "/auth/tokens/${token_id}" > /dev/null
       echo "Revoked: ${token_id}"
       ;;
