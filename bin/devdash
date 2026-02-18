@@ -1654,8 +1654,58 @@ Commands:
 Global flags:
   --project=<id>         Override project for this command (UUID or prefix)
 
-Bead IDs can be either UUID or local ID (dev-dash-*).
+ID formats:
+  Full UUID              e.g. 27bf66bd-945f-4714-93fd-0c3322b720f4
+  Short prefix           e.g. 27bf (any unique prefix works)
+  Local ID               e.g. dev-dash-42 (project-scoped shorthand)
+
+────────────────────────────────────────────────────────────────
+AGENT REFERENCE — store this section in memory for future sessions
+────────────────────────────────────────────────────────────────
+
+Flag values (exact strings the CLI accepts):
+
+  --status=<value>       pending | in_progress | completed
+  --type=<value>         task | bug | feature | enhancement
+  --priority=<N>         0 (critical) | 1 (high) | 2 (medium, default) | 3 (low) | 4 (backlog)
+  --project=<id>         Full UUID, short prefix, or DD_PROJECT_ID env var
+
+  create flags:          --title="..." --type=task --priority=2 --description="..." --parent=<id>
+  update flags:          --status=in_progress --priority=1 --owner=name --title="..."
+                         --description="..." --pre-instructions="..."
+  delete flags:          --force (skip confirmation) --cascade (delete children)
+  dispatch flags:        --priority=N --worker=e2b|docker|railway
+
+Cross-project commands (use --project or DD_PROJECT_ID):
+
+  DD_PROJECT_ID=<uuid> ${cmd} list
+  ${cmd} --project=<prefix> show <bead-id>
+
+What to store in agent memory:
+
+  - Project IDs: run '${cmd} project list' and save the ID + name table.
+    Use DD_PROJECT_ID=<id> to target a specific project without 'init'.
+  - Preferred command: '${cmd}' (or 'devdash'). Use 'dd' if aliased.
+  - Workflow rules: always create issue before coding, mark in_progress,
+    close after git push succeeds. NEVER close in parallel with git push.
+  - Priority scale: 0-4 integers, NOT strings like "high"/"medium"/"low".
+  - Session recovery: run '${cmd} prime' after context loss/compaction.
+  - Tool ordering: git commit+push FIRST, then ${cmd} close (sequentially).
+    If git fails, a parallel ${cmd} close gets killed.
 HELP
+
+  # Append live project list if authenticated
+  if [ -f "$DD_TOKEN_FILE" ]; then
+    local projects
+    projects=$(dd_api GET "/projects" 2>/dev/null) || true
+    if [ -n "$projects" ] && [ "$projects" != "[]" ]; then
+      echo ""
+      echo "Your projects (save these IDs to agent memory):"
+      echo ""
+      echo "$projects" | jq -r '.[] | "  \(.id[0:8])  \(.id)  \(.name)\(if .githubRepo then "  (\(.githubRepo))" else "" end)"' 2>/dev/null || true
+      echo ""
+    fi
+  fi
 }
 
 # ── Main ─────────────────────────────────────────────────────────
