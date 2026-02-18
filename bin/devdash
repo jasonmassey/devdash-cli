@@ -1182,6 +1182,36 @@ dd_prime() {
 **Health**: ${open:-0} open, ${ip:-0} in progress, ${blocked:-0} blocked"
       fi
     fi
+
+    # Fetch all projects for cross-repo reference table
+    local all_projects
+    all_projects=$(dd_api GET "/projects" 2>/dev/null) || true
+    if [ -n "$all_projects" ] && echo "$all_projects" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+      local projects_table
+      projects_table=$(echo "$all_projects" | jq -r '
+        .[] | [
+          .id[:8],
+          .id,
+          .name,
+          (if .githubRepo and .githubRepo != "" then "(\(.githubRepo))" else "(no repo)" end)
+        ] | @tsv
+      ' 2>/dev/null)
+      if [ -n "$projects_table" ]; then
+        local table_rows=""
+        while IFS=$'\t' read -r short full name repo; do
+          table_rows="${table_rows}
+| \`${short}\` | \`${full}\` | ${name} | ${repo} |"
+        done <<< "$projects_table"
+        project_header="${project_header}
+
+## All Projects
+
+| Short | Full UUID | Name | Repo |
+|-------|-----------|------|------|${table_rows}
+
+Use \`DD_PROJECT_ID=<full-uuid> ${dd_cmd} <command>\` to target a specific project."
+      fi
+    fi
   fi
 
   cat <<PRIME
