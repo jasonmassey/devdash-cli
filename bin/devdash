@@ -155,7 +155,7 @@ dd_fetch_beads() {
   local all="[]" cursor="" page
   while true; do
     local url="/beads?projectId=${pid}&limit=500"
-    [ -n "$cursor" ] && url="${url}&cursor=${cursor}"
+    [ -n "$cursor" ] && url="${url}&cursor=$(printf '%s' "$cursor" | jq -sRr @uri)"
     page=$(dd_api GET "$url") || return $?
     local data
     data=$(echo "$page" | dd_jq '.data // .')
