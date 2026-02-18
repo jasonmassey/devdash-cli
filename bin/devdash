@@ -1031,6 +1031,29 @@ dd_doctor() {
   else
     echo "  ○ project config: not found (run 'devdash init')"
   fi
+  # Check server connectivity + auth
+  if [ -f "$DD_TOKEN_FILE" ]; then
+    local api_base
+    api_base=$(dd_api_url 2>/dev/null) || api_base=""
+    if [ -n "$api_base" ]; then
+      local token health_code auth_code
+      token=$(cat "$DD_TOKEN_FILE")
+      health_code=$(curl -s -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
+      if [ "$health_code" = "200" ]; then
+        echo "  ✓ server: ${api_base} (reachable)"
+        auth_code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
+        if [ "$auth_code" -ge 200 ] && [ "$auth_code" -lt 300 ]; then
+          echo "  ✓ auth: token accepted"
+        else
+          echo "  ✗ auth: token rejected (HTTP ${auth_code}) — run 'devdash login'"
+          ok=false
+        fi
+      else
+        echo "  ✗ server: ${api_base} (HTTP ${health_code})"
+        ok=false
+      fi
+    fi
+  fi
   echo ""
   # Check if dd alias exists
   if alias dd 2>/dev/null | grep -q devdash 2>/dev/null; then
