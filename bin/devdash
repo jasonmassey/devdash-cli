@@ -1666,6 +1666,81 @@ dd_token_dispatch() {
   esac
 }
 
+dd_admin_reset_user() {
+  local user_id="" confirm=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user-id=*) user_id="${1#--user-id=}" ;;
+      --confirm) confirm=true ;;
+      *) user_id="$1" ;;
+    esac
+    shift
+  done
+
+  if [ -z "$user_id" ]; then
+    echo "Usage: devdash admin reset-user <user-id> [--confirm]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local admin_secret="${ADMIN_SECRET:-}"
+  if [ -z "$admin_secret" ] && [ -f "${DD_CONFIG_DIR}/admin-secret" ]; then
+    admin_secret=$(cat "${DD_CONFIG_DIR}/admin-secret")
+  fi
+  if [ -z "$admin_secret" ]; then
+    echo "Error: ADMIN_SECRET env var not set and ~/.config/dev-dash/admin-secret not found" >&2
+    exit "$DD_EXIT_CONFIG"
+  fi
+
+  local api_url
+  api_url=$(dd_api_url)
+
+  if [ "$confirm" != true ]; then
+    echo "This will DELETE all projects, beads, jobs, credentials, and sessions for user: ${user_id}"
+    echo "The user account will remain but onboarding_completed will be reset to 0."
+    echo ""
+    printf "Proceed? [y/N] "
+    read -r answer </dev/tty 2>/dev/null || answer="n"
+    case "$answer" in
+      [Yy]|[Yy]es) ;;
+      *) echo "Cancelled."; return ;;
+    esac
+  fi
+
+  local tmpfile http_code body
+  tmpfile=$(mktemp)
+  http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X POST \
+    -H "x-admin-secret: ${admin_secret}" \
+    -H "Content-Type: application/json" \
+    "${api_url}/api/admin/reset-user/${user_id}" 2>/dev/null) || {
+    rm -f "$tmpfile"
+    echo "Error: could not connect to ${api_url}" >&2
+    exit "$DD_EXIT_API"
+  }
+  body=$(cat "$tmpfile")
+  rm -f "$tmpfile"
+
+  if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+    echo ""
+    echo "User reset successfully!"
+    echo ""
+    echo "$body" | jq '{
+      user: .user,
+      projectsReset: .projectsReset,
+      deleted: .deleted
+    }'
+  else
+    local msg
+    msg=$(echo "$body" | jq -r '.error // .message // empty' 2>/dev/null)
+    if [ -n "$msg" ]; then
+      echo "API error ($http_code): $msg" >&2
+    else
+      echo "API error ($http_code): $body" >&2
+    fi
+    exit "$DD_EXIT_API"
+  fi
+}
+
 dd_help() {
   local cmd
   cmd=$(dd_cmd_name)
@@ -1707,6 +1782,7 @@ Commands:
   prime                  Output AI-optimized workflow context (for agent injection)
   agent-setup            Write devdash instructions for AI agents
                          (--agent=claude,codex,... | --all) [--force]
+  admin reset-user <id>  Reset user state for onboarding re-testing (--confirm)
   doctor                 Check prerequisites and configuration
   alias-setup            Add 'dd' -> 'devdash' alias to your shell
   self-update            Update devdash to the latest version
@@ -1817,6 +1893,13 @@ case "${1:-help}" in
   stats)   dd_stats ;;
   sync)    dd_sync ;;
   prime)   dd_prime ;;
+  admin)
+    shift
+    case "${1:-}" in
+      reset-user) shift; dd_admin_reset_user "$@" ;;
+      *) echo "Usage: devdash admin [reset-user]" >&2; exit "$DD_EXIT_USER" ;;
+    esac
+    ;;
   agent-setup) shift; dd_agent_setup "$@" ;;
   doctor)  dd_doctor ;;
   alias-setup) dd_alias_setup ;;
