@@ -400,6 +400,7 @@ dd_ready() {
     ([.[] | select(.status == "completed") | .id]) as $done |
     [.[] | select(.status == "pending")
          | select((.blockedBy | length) == 0 or ([.blockedBy[] | IN($done[])] | all))]
+    | [.[] | select((.beadType // "task") != "thought")]
     | sort_by(.priority)
     | .[]
     | "○ \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)"
@@ -1727,7 +1728,7 @@ AGENT REFERENCE — store this section in memory for future sessions
 Flag values (exact strings the CLI accepts):
 
   --status=<value>       pending | in_progress | completed
-  --type=<value>         task | bug | feature | enhancement
+  --type=<value>         task | bug | feature | enhancement | thought
   --priority=<N>         0 (critical) | 1 (high) | 2 (medium, default) | 3 (low) | 4 (backlog)
   --project=<id>         Full UUID, short prefix, or DD_PROJECT_ID env var
 
