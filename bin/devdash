@@ -250,6 +250,14 @@ dd_version() {
 }
 
 dd_login() {
+  local no_browser=false
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-browser) no_browser=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
   local nonce
   nonce=$(openssl rand -hex 16)
   local tmpfile
@@ -310,9 +318,16 @@ s.serve_forever()
   trap 'printf "\nCancelled.\n"; kill $server_pid 2>/dev/null; rm -f "$tmpfile"; exit 130' INT
 
   local url="${api_url}/api/auth/cli-token?port=${port}&nonce=${nonce}"
-  echo "Opening browser for authentication..."
+  if [ "$no_browser" = true ]; then
+    echo "Open this URL in your browser (e.g. incognito window):"
+    echo ""
+    echo "  $url"
+    echo ""
+  else
+    echo "Opening browser for authentication..."
+    open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open this URL in your browser: $url"
+  fi
   echo "Waiting for callback (up to 2 minutes)..."
-  open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open this URL in your browser: $url"
 
   # Wait for server to exit (callback received or timeout)
   wait "$server_pid" 2>/dev/null || true
@@ -1750,7 +1765,7 @@ devdash — Dev-Dash CLI
 Usage: ${cmd} <command> [args]
 
 Commands:
-  login                  Authenticate via browser (stores token locally)
+  login [--no-browser]   Authenticate via browser (stores token locally)
   init                   Link current repo to a dev-dash project
   token create "name"    Create a new API token (dd_ prefix, for DD Red etc.)
   token list             List your API tokens
@@ -1859,7 +1874,7 @@ done
 set -- "${_args[@]+"${_args[@]}"}"
 
 case "${1:-help}" in
-  login)   dd_login ;;
+  login)   shift; dd_login "$@" ;;
   init)    dd_init ;;
   token)   shift; dd_token_dispatch "$@" ;;
   project)
