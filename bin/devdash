@@ -28,6 +28,14 @@ dd_close_gate() {
   echo "${gate:-push}"
 }
 
+dd_frontend_url() {
+  local url=""
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    url=$(jq -r '.frontend_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+  fi
+  echo "${url:-https://dev-dash-blue.vercel.app}"
+}
+
 dd_api_url() {
   if [ -f "$DD_PROJECT_FILE" ]; then
     local url
@@ -1320,6 +1328,14 @@ dd_prime() {
   local close_gate
   close_gate=$(dd_close_gate)
 
+  # Read project ID and frontend URL for PR guidance
+  local project_id=""
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    project_id=$(jq -r '.project_id // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+  fi
+  local frontend_url
+  frontend_url=$(dd_frontend_url)
+
   # Gather project context if available
   local project_header=""
   if [ -f "$DD_PROJECT_FILE" ] && [ -f "$DD_TOKEN_FILE" ]; then
@@ -1450,6 +1466,19 @@ $(if [ "$close_gate" = "commit" ]; then
   fi)
 Git operations MUST succeed before closing. Never run git and ${dd_cmd} close in parallel.
 
+### Creating pull requests
+When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
+
+\`\`\`
+## DevDash
+Project: \`${project_id}\`
+Issues:
+- [<issue-id>](${frontend_url}/issue/<issue-id>)
+\`\`\`
+
+Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
+If the PR addresses multiple issues, list each on its own line.
+
 ### Creating dependent work
 \`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
 PRIME
@@ -1462,6 +1491,14 @@ DD_AGENT_MARKER="<!-- devdash:agent-instructions -->"
 dd_generate_agent_instructions() {
   local close_gate
   close_gate=$(dd_close_gate)
+
+  # Read project ID and frontend URL for PR guidance
+  local project_id=""
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    project_id=$(jq -r '.project_id // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+  fi
+  local frontend_url
+  frontend_url=$(dd_frontend_url)
 
   local close_rule completing_work
   if [ "$close_gate" = "commit" ]; then
@@ -1526,6 +1563,19 @@ Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 ### Completing work
 ${completing_work}
 Git operations MUST succeed before closing. Never run git and devdash close in parallel.
+
+### Creating pull requests
+When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
+
+\`\`\`
+## DevDash
+Project: \`${project_id}\`
+Issues:
+- [<issue-id>](${frontend_url}/issue/<issue-id>)
+\`\`\`
+
+Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
+If the PR addresses multiple issues, list each on its own line.
 
 ### Creating dependent work
 \`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
@@ -2015,6 +2065,7 @@ What to store in agent memory:
   - Workflow rules: always create issue before coding, mark in_progress,
     ${workflow_rule}
   - Priority scale: 0-4 integers, NOT strings like "high"/"medium"/"low".
+  - PR footer: include a ## DevDash section with project ID + issue URL(s).
   - Session recovery: run '${cmd} prime' after context loss/compaction.
   - Tool ordering: ${tool_ordering}
     If git fails, a parallel ${cmd} close gets killed.
