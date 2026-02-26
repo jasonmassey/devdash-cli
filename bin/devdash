@@ -43,7 +43,7 @@ dd_resolve_project_id() {
   local projects
   projects=$(dd_api GET "/projects" 2>/dev/null) || { echo "$raw"; return; }
   local matches
-  matches=$(echo "$projects" | jq -r "[.[] | select(.id | startswith(\"$raw\"))] | .[].id")
+  matches=$(echo "$projects" | jq -r --arg r "$raw" '[.[] | select(.id | startswith($r))] | .[].id')
   if [ -z "$matches" ]; then
     echo "No project found matching prefix: $raw" >&2
     exit "$DD_EXIT_USER"
@@ -70,7 +70,7 @@ dd_resolve_token_id() {
   local tokens
   tokens=$(dd_api GET "/auth/tokens")
   local matches
-  matches=$(echo "$tokens" | dd_jq -r "[.[] | select(.id | startswith(\"$token_id\"))] | .[].id")
+  matches=$(echo "$tokens" | dd_jq -r --arg t "$token_id" '[.[] | select(.id | startswith($t))] | .[].id')
   if [ -z "$matches" ]; then
     echo "No token found matching prefix: $token_id" >&2
     return 1
@@ -201,7 +201,7 @@ dd_resolve_id() {
   # dev-dash-* local IDs — resolve via localBeadId field
   if [[ "$bead_id" == dev-dash-* ]]; then
     local uuid
-    uuid=$(echo "$all_beads" | jq -r ".[] | select(.localBeadId == \"$bead_id\") | .id")
+    uuid=$(echo "$all_beads" | jq -r --arg b "$bead_id" '.[] | select(.localBeadId == $b) | .id')
     if [ -z "$uuid" ]; then
       echo "Bead not found: $bead_id" >&2
       return 1
@@ -212,7 +212,7 @@ dd_resolve_id() {
 
   # Short prefix — match against all beads
   local matches
-  matches=$(echo "$all_beads" | jq -r "[.[] | select(.id | startswith(\"$bead_id\"))] | .[].id")
+  matches=$(echo "$all_beads" | jq -r --arg b "$bead_id" '[.[] | select(.id | startswith($b))] | .[].id')
 
   if [ -z "$matches" ]; then
     echo "Bead not found matching prefix: $bead_id" >&2
@@ -483,7 +483,7 @@ dd_list() {
   if [ -n "$status_filter" ]; then
     # Accept --status=X or just a status word
     status_filter="${status_filter#--status=}"
-    beads=$(echo "$beads" | jq "[.[] | select(.status == \"$status_filter\")]")
+    beads=$(echo "$beads" | jq --arg s "$status_filter" '[.[] | select(.status == $s)]')
   fi
 
   echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" else "?" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
@@ -691,15 +691,15 @@ dd_dep_add() {
 
   # Get current blockedBy for the issue
   local current
-  current=$(echo "$all_beads" | jq ".[] | select(.id == \"$issue_uuid\")")
+  current=$(echo "$all_beads" | jq --arg id "$issue_uuid" '.[] | select(.id == $id)')
   local blocked_by
-  blocked_by=$(echo "$current" | jq -c ".blockedBy + [\"$dep_uuid\"] | unique")
+  blocked_by=$(echo "$current" | jq -c --arg dep "$dep_uuid" '.blockedBy + [$dep] | unique')
 
   # Get current blocks for the dependency
   local dep_current
-  dep_current=$(echo "$all_beads" | jq ".[] | select(.id == \"$dep_uuid\")")
+  dep_current=$(echo "$all_beads" | jq --arg id "$dep_uuid" '.[] | select(.id == $id)')
   local blocks
-  blocks=$(echo "$dep_current" | jq -c ".blocks + [\"$issue_uuid\"] | unique")
+  blocks=$(echo "$dep_current" | jq -c --arg id "$issue_uuid" '.blocks + [$id] | unique')
 
   # Update both
   dd_api PATCH "/beads/${issue_uuid}" -d "{\"projectId\": \"${pid}\", \"blockedBy\": ${blocked_by}}" > /dev/null
@@ -1001,7 +1001,7 @@ dd_reconcile_tasks() {
   # Group findings by type
   for ftype in dependency_issue stale redundant likely_completed orphaned superseded; do
     local count
-    count=$(echo "$result" | jq "[.findings[] | select(.type == \"$ftype\")] | length")
+    count=$(echo "$result" | jq --arg t "$ftype" '[.findings[] | select(.type == $t)] | length')
     if [ "$count" -eq 0 ]; then continue; fi
 
     local label
@@ -1015,7 +1015,7 @@ dd_reconcile_tasks() {
     esac
 
     echo "── ${label} (${count}) ──"
-    echo "$result" | jq -r ".findings[] | select(.type == \"$ftype\") | \"  [\(.severity)] \(.beadSubject)\n    → \(.reason)\(if .relatedBeadId then \"\n    related: \(.relatedBeadId[0:8])...\" else \"\" end)\""
+    echo "$result" | jq -r --arg t "$ftype" '.findings[] | select(.type == $t) | "  [\(.severity)] \(.beadSubject)\n    → \(.reason)\(if .relatedBeadId then "\n    related: \(.relatedBeadId[0:8])..." else "" end)"'
     echo ""
   done
 
@@ -1716,7 +1716,7 @@ dd_agent_setup() {
         printf "Enter numbers (comma-separated, e.g. 1,3,5): "
         read -r nums </dev/tty 2>/dev/null || nums=""
         IFS=',' read -ra picks <<< "$nums"
-        for n in "${picks[@]}"; do
+        for n in ${picks[@]+"${picks[@]}"}; do
           n=$(echo "$n" | tr -d ' ')
           if [ "$n" -ge 1 ] && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
             agents+=("${all_agents[$((n - 1))]}")
@@ -1726,7 +1726,7 @@ dd_agent_setup() {
       *)
         # Try interpreting as comma-separated numbers
         IFS=',' read -ra picks <<< "$choice"
-        for n in "${picks[@]}"; do
+        for n in ${picks[@]+"${picks[@]}"}; do
           n=$(echo "$n" | tr -d ' ')
           if [ "$n" -ge 1 ] && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
             agents+=("${all_agents[$((n - 1))]}")
