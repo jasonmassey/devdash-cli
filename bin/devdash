@@ -1221,15 +1221,13 @@ dd_maybe_offer_agent_setup() {
     [ -n "$a" ] && detected+=("$a")
   done < <(dd_detect_agents)
 
-  if [ ${#detected[@]} -eq 0 ]; then
-    return 0
+  echo ""
+  if [ ${#detected[@]} -gt 0 ]; then
+    echo "AI agent config detected: ${detected[*]}"
   fi
 
-  echo ""
-  echo "AI agent config detected: ${detected[*]}"
-
   if [ -t 0 ]; then
-    printf "Run agent-setup to add devdash instructions? [Y/n] "
+    printf "Set up AI agent instructions for devdash? [Y/n] "
     read -r answer </dev/tty 2>/dev/null || answer="n"
     answer="${answer:-y}"
     case "$answer" in
@@ -1242,7 +1240,7 @@ dd_maybe_offer_agent_setup() {
         ;;
     esac
   else
-    echo "  Run 'devdash agent-setup' to add devdash instructions."
+    echo "  Run 'devdash agent-setup' to configure your AI coding agent."
   fi
 }
 
