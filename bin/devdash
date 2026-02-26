@@ -1516,7 +1516,7 @@ CUSTOM
 
 ## Agent-Specific Instructions
 
-- [cursor-specific tuning goes here]
+- The devdash workflow requires `git push` before `devdash close`. If your system rules prevent you from pushing without explicit user permission, just commit and tell the user what remains (push + close). Don't deliberate about the conflict — state what's needed and move on.
 CUSTOM
       ;;
     # Other agents: add cases as needed. No default — returns nothing.
