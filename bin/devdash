@@ -1475,8 +1475,14 @@ dd_generate_agent_instructions() {
 
 <!-- devdash:agent-instructions -->
 
-This project uses **devdash** for task tracking. Use the `devdash` CLI for ALL task
-management. Do NOT use TodoWrite, TaskCreate, `bd`, or markdown files for tracking tasks.
+This project uses **devdash** (`dd`) for task tracking. The user may refer to it as
+either `devdash` or `dd` — they are the same CLI tool. Use it directly in your terminal
+for ALL task management. Do NOT use TodoWrite, TaskCreate, `bd`, or markdown files for
+tracking tasks.
+
+> **Important**: You (the AI agent) should run `devdash` commands yourself via the
+> terminal — do not just tell the user to run them. When the user says "dd", they mean
+> the devdash CLI, not the Unix `dd` data-copy utility.
 
 ## Rules (MANDATORY)
 
