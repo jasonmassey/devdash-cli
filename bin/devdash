@@ -355,11 +355,7 @@ s.serve_forever()
 }
 
 dd_init() {
-  # Detect GitHub remote
-  local remote=""
-  if git rev-parse --is-inside-work-tree &>/dev/null; then
-    remote=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.*)\.git$#\1#; s#.*github\.com[:/](.*)$#\1#') || remote=""
-  fi
+  local selector="${1:-}"
 
   # Fetch projects
   local projects
@@ -368,27 +364,113 @@ dd_init() {
     exit "$DD_EXIT_API"
   }
 
-  # Try auto-match by GitHub repo
-  if [ -n "$remote" ]; then
-    local pid
-    pid=$(echo "$projects" | jq -r ".[] | select(.githubRepo == \"$remote\") | .id" 2>/dev/null | head -1)
-    if [ -n "$pid" ]; then
-      local pname
-      pname=$(echo "$projects" | jq -r ".[] | select(.id == \"$pid\") | .name" 2>/dev/null)
-      local api_url
-      api_url=$(dd_api_url)
-      echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${pid}\"}" > "$DD_PROJECT_FILE"
-      echo "Initialized: ${pname} (${remote}) -> ${pid}"
-      dd_maybe_offer_alias
-      return
+  local pid="" remote=""
+
+  # Mode A: explicit argument — match by UUID, prefix, or name
+  if [ -n "$selector" ]; then
+    # Try full UUID match
+    pid=$(echo "$projects" | jq -r --arg s "$selector" \
+      '.[] | select(.id == $s) | .id' 2>/dev/null | head -1)
+
+    # Try prefix match
+    if [ -z "$pid" ]; then
+      local matches
+      matches=$(echo "$projects" | jq -r --arg s "$selector" \
+        '[.[] | select(.id | startswith($s))] | length' 2>/dev/null)
+      if [ "$matches" = "1" ]; then
+        pid=$(echo "$projects" | jq -r --arg s "$selector" \
+          '.[] | select(.id | startswith($s)) | .id' 2>/dev/null)
+      elif [ "$matches" -gt 1 ] 2>/dev/null; then
+        echo "Multiple projects match prefix '${selector}':" >&2
+        echo "$projects" | jq -r --arg s "$selector" \
+          '.[] | select(.id | startswith($s)) | "  \(.id)  \(.name)"'
+        echo "" >&2
+        echo "Be more specific, e.g.: devdash init <longer-prefix>" >&2
+        exit "$DD_EXIT_USER"
+      fi
+    fi
+
+    # Try name match (case-insensitive)
+    if [ -z "$pid" ]; then
+      local name_matches
+      name_matches=$(echo "$projects" | jq -r --arg s "$selector" \
+        '[.[] | select(.name | ascii_downcase == ($s | ascii_downcase))] | length' 2>/dev/null)
+      if [ "$name_matches" = "1" ]; then
+        pid=$(echo "$projects" | jq -r --arg s "$selector" \
+          '.[] | select(.name | ascii_downcase == ($s | ascii_downcase)) | .id' 2>/dev/null)
+      elif [ "$name_matches" -gt 1 ] 2>/dev/null; then
+        echo "Multiple projects match name '${selector}':" >&2
+        echo "$projects" | jq -r --arg s "$selector" \
+          '.[] | select(.name | ascii_downcase == ($s | ascii_downcase)) | "  \(.id)  \(.name)"'
+        exit "$DD_EXIT_USER"
+      fi
+    fi
+
+    if [ -z "$pid" ]; then
+      echo "No project matches '${selector}'." >&2
+      echo "" >&2
+      echo "Available projects:" >&2
+      echo "$projects" | jq -r '.[] | "  \(.id | .[0:8])  \(.name)  (\(.githubRepo // "no repo"))"' >&2
+      exit "$DD_EXIT_USER"
     fi
   fi
 
-  # List projects for manual selection
-  echo "No auto-match for remote '${remote}'. Available projects:"
-  echo "$projects" | jq -r '.[] | "  \(.id)  \(.name)  (\(.githubRepo // "no repo"))"'
-  echo ""
-  echo "Set manually: echo '{\"api_url\": \"...\", \"project_id\": \"...\"}' > .devdash"
+  # Mode B: auto-match by git remote (case-insensitive)
+  if [ -z "$pid" ]; then
+    if git rev-parse --is-inside-work-tree &>/dev/null; then
+      remote=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/](.*)\.git$#\1#; s#.*github\.com[:/](.*)$#\1#') || remote=""
+    fi
+
+    if [ -n "$remote" ]; then
+      pid=$(echo "$projects" | jq -r --arg r "$remote" \
+        '.[] | select((.githubRepo // "") | ascii_downcase == ($r | ascii_downcase)) | .id' 2>/dev/null | head -1)
+    fi
+  fi
+
+  # Mode C: interactive / hint fallback
+  if [ -z "$pid" ]; then
+    local count
+    count=$(echo "$projects" | jq 'length' 2>/dev/null)
+
+    if [ "$count" = "0" ]; then
+      echo "No projects found. Create one first:" >&2
+      echo "  devdash project create --name=\"My Project\"" >&2
+      exit "$DD_EXIT_CONFIG"
+    fi
+
+    echo "Could not auto-detect project.${remote:+ Git remote: ${remote}}"
+    echo ""
+    echo "Available projects:"
+
+    # Show numbered list
+    echo "$projects" | jq -r 'to_entries[] | "  \(.key + 1). \(.value.name)  (\(.value.githubRepo // "no repo"))  [\(.value.id | .[0:8])]"'
+    echo ""
+
+    if [ -t 0 ]; then
+      printf "Select project number: "
+      read -r choice </dev/tty 2>/dev/null || { echo "No input available." >&2; exit "$DD_EXIT_USER"; }
+      if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
+        pid=$(echo "$projects" | jq -r ".[$((choice - 1))].id" 2>/dev/null)
+      else
+        echo "Invalid selection." >&2
+        exit "$DD_EXIT_USER"
+      fi
+    else
+      echo "Run: devdash init <name-or-id>" >&2
+      exit "$DD_EXIT_USER"
+    fi
+  fi
+
+  # Write config
+  local pname
+  pname=$(echo "$projects" | jq -r --arg id "$pid" '.[] | select(.id == $id) | .name' 2>/dev/null)
+  local api_url
+  api_url=$(dd_api_url)
+  echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${pid}\"}" > "$DD_PROJECT_FILE"
+  echo "Initialized: ${pname} -> .devdash"
+
+  dd_maybe_offer_alias
+  dd_maybe_offer_agent_setup
 }
 
 dd_list() {
@@ -1131,6 +1213,19 @@ dd_maybe_offer_alias() {
       echo "Skipped. Run 'devdash alias-setup' anytime."
       ;;
   esac
+}
+
+dd_maybe_offer_agent_setup() {
+  local detected=()
+  while IFS= read -r a; do
+    [ -n "$a" ] && detected+=("$a")
+  done < <(dd_detect_agents)
+
+  if [ ${#detected[@]} -gt 0 ]; then
+    echo ""
+    echo "Tip: AI agent config detected (${detected[*]})."
+    echo "  Run 'devdash agent-setup' to add devdash instructions."
+  fi
 }
 
 dd_alias_setup() {
@@ -1877,7 +1972,7 @@ set -- "${_args[@]+"${_args[@]}"}"
 
 case "${1:-help}" in
   login)   shift; dd_login "$@" ;;
-  init)    dd_init ;;
+  init)    shift; dd_init "$@" ;;
   token)   shift; dd_token_dispatch "$@" ;;
   project)
     shift
