@@ -308,8 +308,10 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 s = http.server.HTTPServer(('127.0.0.1', ${port}), H)
-# Auto-shutdown after 120s if no callback received
-threading.Timer(120, s.shutdown).start()
+# Auto-shutdown after 120s if no callback received (daemon so process can exit early)
+t = threading.Timer(120, s.shutdown)
+t.daemon = True
+t.start()
 s.serve_forever()
 " &
   local server_pid=$!
