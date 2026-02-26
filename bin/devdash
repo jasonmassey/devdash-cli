@@ -1675,7 +1675,7 @@ dd_agent_setup() {
     local i=1
     for a in "${all_agents[@]}"; do
       local mark=" "
-      for d in "${detected[@]}"; do
+      for d in ${detected[@]+"${detected[@]}"}; do
         if [ "$a" = "$d" ]; then mark="*"; break; fi
       done
       local config_file=""
