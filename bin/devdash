@@ -1562,7 +1562,7 @@ dd_write_agent_config() {
   case "$agent" in
     claude)   file="CLAUDE.md"; mode="append" ;;
     codex)    file="AGENTS.md"; mode="append" ;;
-    cursor)   file=".cursor/rules/devdash.md"; mode="create" ;;
+    cursor)   file=".cursor/rules/devdash.mdc"; mode="create" ;;
     copilot)  file=".github/copilot-instructions.md"; mode="append" ;;
     windsurf) file=".windsurfrules"; mode="append" ;;
     cline)    file=".clinerules"; mode="append" ;;
@@ -1609,6 +1609,16 @@ dd_write_agent_config() {
   local block
   block="${instructions}
 <!-- /devdash:agent-instructions -->"
+
+  # Cursor requires .mdc format with YAML frontmatter
+  if [ "$agent" = "cursor" ]; then
+    block="---
+description: \"DevDash task tracking workflow — mandatory for all code changes\"
+alwaysApply: true
+---
+
+${block}"
+  fi
 
   # Ensure parent directory exists
   local dir
