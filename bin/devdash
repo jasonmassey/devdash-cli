@@ -1475,88 +1475,58 @@ dd_generate_agent_instructions() {
 
 <!-- devdash:agent-instructions -->
 
-This project uses **devdash** (`dd`) for task tracking. The user may refer to it as
-either `devdash` or `dd` — they are the same CLI tool. Use it directly in your terminal
-for ALL task management. Do NOT use TodoWrite, TaskCreate, `bd`, or markdown files for
-tracking tasks.
-
-> **Important**: You (the AI agent) should run `devdash` commands yourself via the
-> terminal — do not just tell the user to run them. When the user says "dd", they mean
-> the devdash CLI, not the Unix `dd` data-copy utility.
+This project uses **devdash** (`dd`) for task tracking. Run devdash commands yourself
+via the terminal — do not just tell the user to run them. Do NOT use TodoWrite,
+TaskCreate, `bd`, or markdown files for tracking. When the user says "dd", they mean
+the devdash CLI, not the Unix `dd` data-copy utility.
 
 ## Rules (MANDATORY)
 
-1. **Issue-first**: Create a devdash issue BEFORE writing code. No exceptions.
-2. **Issue-per-commit**: Every git commit must correspond to a devdash issue. If you do
-   follow-up work or scope expands, create new issues for the additional commits.
-3. **Mark in-progress**: Run `devdash update <id> --status=in_progress` before starting work.
-4. **Pre-commit checkpoint**: Before each `git commit`, verify you have a devdash issue
-   for this work. If not, create one immediately.
-5. **Close after push**: Only close issues after `git push` succeeds — never before.
-6. **No orphaned work**: At session end, every commit you made must map to a closed
-   devdash issue. Audit with `devdash list --status=in_progress` and close or create as needed.
+- **Issue-first**: Create a devdash issue BEFORE writing code. No exceptions.
+- **Issue-per-commit**: Every git commit must map to a devdash issue. If scope expands, create new issues.
+- **Mark in-progress**: `devdash update <id> --status=in_progress` before starting work.
+- **Pre-commit checkpoint**: Before each `git commit`, verify you have an issue. If not, create one.
+- **Close after push**: Only close issues after `git push` succeeds — never before.
+- **No orphaned work**: At session end, every commit must map to a closed issue.
 
-## Install
+## CLI Reference
 
-```bash
-npm install -g github:jasonmassey/devdash-cli
-```
+### Viewing issues
+- `devdash ready` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
+- `devdash list [--status=pending|in_progress|completed]` — All issues, optionally filtered by status.
+- `devdash blocked` — Pending issues with unsatisfied dependencies.
+- `devdash show <id>` — Full issue detail: description, dependencies, pre-instructions, parent.
+- `devdash stats` — Project health: open/closed/blocked counts.
 
-## Session Start
+### Creating & updating
+- `devdash create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]`
+- `devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]`
+- `devdash close <id> [<id>...]` — Mark one or many issues completed.
+- `devdash delete <id> [--force] [--cascade]`
 
-Run `devdash prime` at the start of every session to get live project context
-(health stats, project ID, available commands).
+### Dependencies
+- `devdash dep add <issue> <depends-on>` — Issue is blocked until depends-on completes.
 
-## Essential Commands
+### IDs
+Full UUID, UUID prefix (e.g. `27bf`), or local ID (`dev-dash-42`).
 
-| Command | Description |
-|---------|-------------|
-| `devdash ready` | Show issues ready to work (unblocked) |
-| `devdash list` | All open issues |
-| `devdash list --status=in_progress` | Your active work |
-| `devdash show <id>` | Issue details with dependencies |
-| `devdash blocked` | Show blocked issues |
-| `devdash create --title="..." --type=task\|bug\|feature --priority=2` | Create issue |
-| `devdash update <id> --status=in_progress` | Claim work |
-| `devdash close <id>` | Mark complete |
-| `devdash close <id1> <id2> ...` | Close multiple issues |
-| `devdash dep add <issue> <depends-on>` | Add dependency |
-| `devdash stats` | Project statistics |
+### Priority
+0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Integers only.
 
-### Priority Scale
-
-0 = critical, 1 = high, 2 = medium (default), 3 = low, 4 = backlog
-
-### ID Formats
-
-Bead IDs can be full UUIDs, UUID prefixes (e.g. `27bf`), or local IDs (`dev-dash-*`).
+### Cross-project
+`DD_PROJECT_ID=<full-uuid> devdash <command>`
 
 ## Workflow
 
 ### Starting work
-```bash
-devdash ready                              # Find available work
-devdash show <id>                          # Review details
-devdash update <id> --status=in_progress   # Claim it
-```
+`devdash ready` → `devdash show <id>` → `devdash update <id> --status=in_progress`
 
-### Completing work (Session Close Protocol)
-```
-1. git status           (check what changed)
-2. git add <files>      (stage code changes)
-3. git commit -m "..."  (commit code)
-4. git push             (push to remote)
-5. devdash close <id>   (mark task complete)
-```
-
-**NEVER skip the git push.** Work is not done until pushed.
+### Completing work
+`git add` → `git commit` → `git push` → `devdash close <id>`
+Git operations MUST succeed before closing. Never run git and devdash close in parallel.
 
 ### Creating dependent work
-```bash
-devdash create --title="Implement feature X" --type=feature
-devdash create --title="Write tests for X" --type=task
-devdash dep add <tests-id> <feature-id>   # Tests depend on feature
-```
+`devdash create --title="Feature X" --type=feature` → `devdash create --title="Tests for X" --type=task` → `devdash dep add <tests-id> <feature-id>`
 INSTRUCTIONS
 }
 
