@@ -1500,6 +1500,29 @@ Git operations MUST succeed before closing. Never run git and devdash close in p
 INSTRUCTIONS
 }
 
+dd_agent_custom_instructions() {
+  local agent="$1"
+  case "$agent" in
+    claude)
+      cat <<'CUSTOM'
+
+## Agent-Specific Instructions
+
+- [claude-specific tuning goes here]
+CUSTOM
+      ;;
+    cursor)
+      cat <<'CUSTOM'
+
+## Agent-Specific Instructions
+
+- [cursor-specific tuning goes here]
+CUSTOM
+      ;;
+    # Other agents: add cases as needed. No default — returns nothing.
+  esac
+}
+
 dd_write_agent_config() {
   local agent="$1"
   local force="${2:-false}"
@@ -1551,6 +1574,15 @@ dd_write_agent_config() {
 
   local instructions
   instructions=$(dd_generate_agent_instructions)
+
+  # Append agent-specific instructions if any exist for this agent
+  local custom
+  custom=$(dd_agent_custom_instructions "$agent")
+  if [ -n "$custom" ]; then
+    instructions="${instructions}
+${custom}"
+  fi
+
   # Wrap with end marker for clean replacement on --force
   local block
   block="${instructions}
