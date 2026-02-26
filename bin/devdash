@@ -1390,15 +1390,19 @@ $([ -n "$project_header" ] && echo "" && echo "$project_header")
 [ ] 2. git add <files>         (stage code changes)
 [ ] 3. git commit -m "..."     (commit code)
 [ ] 4. git push                (push to remote)
+[ ] 5. ${dd_cmd} close <id>    (mark task complete — AFTER push succeeds)
 \`\`\`
 
-**NEVER skip this.** Work is not done until pushed.
+**NEVER skip this.** Work is not done until pushed AND the issue is closed.
 
-## Core Rules
-- **Default**: Use \`${dd_cmd}\` for ALL task tracking (\`${dd_cmd} create\`, \`${dd_cmd} ready\`, \`${dd_cmd} close\`)
+## Core Rules (MANDATORY)
+- **Issue-first**: Create a ${dd_cmd} issue BEFORE writing code. No exceptions.
+- **Issue-per-commit**: Every git commit must correspond to a ${dd_cmd} issue. If scope expands or you do follow-up work, create new issues for the additional commits.
+- **Pre-commit checkpoint**: Before each \`git commit\`, verify you have a ${dd_cmd} issue for this work. If not, create one immediately.
+- **Close after push**: Only close issues after \`git push\` succeeds — never before.
+- **No orphaned work**: At session end, every commit must map to a closed ${dd_cmd} issue.
 - **Path**: \`$(command -v devdash 2>/dev/null || echo "devdash")\`
 - **Prohibited**: Do NOT use \`bd\`, TodoWrite, TaskCreate, or markdown files for task tracking
-- **Workflow**: Create ${dd_cmd} issue BEFORE writing code, mark in_progress when starting
 - Session management: check \`${dd_cmd} ready\` for available work
 
 ## Essential Commands
@@ -1473,6 +1477,18 @@ dd_generate_agent_instructions() {
 
 This project uses **devdash** for task tracking. Use the `devdash` CLI for ALL task
 management. Do NOT use TodoWrite, TaskCreate, `bd`, or markdown files for tracking tasks.
+
+## Rules (MANDATORY)
+
+1. **Issue-first**: Create a devdash issue BEFORE writing code. No exceptions.
+2. **Issue-per-commit**: Every git commit must correspond to a devdash issue. If you do
+   follow-up work or scope expands, create new issues for the additional commits.
+3. **Mark in-progress**: Run `devdash update <id> --status=in_progress` before starting work.
+4. **Pre-commit checkpoint**: Before each `git commit`, verify you have a devdash issue
+   for this work. If not, create one immediately.
+5. **Close after push**: Only close issues after `git push` succeeds — never before.
+6. **No orphaned work**: At session end, every commit you made must map to a closed
+   devdash issue. Audit with `devdash list --status=in_progress` and close or create as needed.
 
 ## Install
 

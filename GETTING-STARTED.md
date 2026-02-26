@@ -67,7 +67,15 @@ Then in your terminal, inside the repo:
 devdash init
 ```
 
-It auto-detects your GitHub remote and links the CLI to your project. A small `.devdash` file is created — commit it so teammates can use the CLI too.
+It auto-detects your GitHub remote (case-insensitive) and links the CLI to your project. If auto-detect fails, you'll see a numbered list to pick from — or you can pass a name or ID directly:
+
+```bash
+devdash init MyProject          # Match by name (case-insensitive)
+devdash init 896b3dbc           # Match by ID prefix
+devdash init <full-uuid>        # Match by exact UUID
+```
+
+A small `.devdash` file is created — commit it so teammates can use the CLI too.
 
 ### Option B: Start from the CLI
 
@@ -98,7 +106,9 @@ From here on, the examples use `dd`. If you skipped the alias, substitute `devda
 
 ## Step 5: Configure your AI agents (optional)
 
-If you use AI coding agents (Claude Code, Codex, Cursor, Copilot, Windsurf, Cline), you can auto-generate config files so they know to use `dd` for task tracking:
+If you use AI coding agents (Claude Code, Codex, Cursor, Copilot, Windsurf, Cline), you can auto-generate config files so they know to use `dd` for task tracking.
+
+`devdash init` will detect agent configs and offer to run this automatically. You can also run it directly:
 
 ```bash
 dd agent-setup

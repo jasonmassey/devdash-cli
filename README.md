@@ -32,12 +32,16 @@ npm install -g @devdashproject/devdash-cli
 # 1. Authenticate (opens browser for Google OAuth)
 devdash login
 
-# 2. Link to a project (auto-detects from git remote)
-devdash init
+# 2. Link to a project
+devdash init                    # Auto-detects from git remote
+devdash init MyProject          # Match by name (case-insensitive)
+devdash init 896b3dbc           # Match by ID prefix
 
 # 3. Verify
 devdash doctor
 ```
+
+During init you'll be offered to set up the `dd` alias and configure AI agent instructions.
 
 ## Quick Start
 
@@ -69,7 +73,7 @@ devdash blocked                           # See what's waiting
 | Command | Description |
 |---------|-------------|
 | `login` | Authenticate via browser (tries ports 18787-18792) |
-| `init` | Link current repo to a project (auto-detects GitHub remote) |
+| `init [name-or-id]` | Link repo to a project (auto-detect, name, ID prefix, or interactive picker) |
 | `project create` | Create a new project (`--name`, `--repo`, `--description`) |
 | `project list` | List all your projects |
 | `project delete <id>` | Delete a project (`--force` to skip confirmation) |
@@ -88,6 +92,7 @@ devdash blocked                           # See what's waiting
 | `sync` | Trigger full reconcile with GitHub |
 | `prime` | Output workflow context for AI agents (includes project health) |
 | `doctor` | Check prerequisites and configuration |
+| `agent-setup` | Configure AI agent instructions (`--agent=X`, `--all`, `--force`) |
 | `alias-setup` | Add `dd` shortcut alias |
 | `self-update` | Update to latest version |
 
@@ -104,6 +109,14 @@ devdash alias-setup
 ```
 
 ### Agent integration
+
+`devdash init` detects AI agent configs (CLAUDE.md, .cursor/, AGENTS.md, etc.) and offers to run `agent-setup` automatically. You can also run it directly:
+
+```bash
+devdash agent-setup              # Interactive — detects your agents
+devdash agent-setup --agent=claude,codex
+devdash agent-setup --all --force
+```
 
 The `prime` command outputs structured context for AI coding agents (e.g., Claude Code):
 
