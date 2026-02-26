@@ -6,7 +6,7 @@ Welcome! This guide will get you from zero to managing tasks in about 5 minutes.
 
 Dev-Dash is a task tracker built for developers who work with AI coding agents. It has two parts:
 
-- **Web dashboard** at [devdash.dev](https://devdash.dev) — create projects, manage your team, connect GitHub, dispatch AI agents
+- **Web dashboard** at [dev-dash-blue.vercel.app](https://dev-dash-blue.vercel.app) — create projects, manage your team, connect GitHub, dispatch AI agents
 - **CLI** (`devdash`) — manage tasks without leaving your terminal
 
 They stay in sync automatically. Use whichever feels right for the moment.
@@ -54,7 +54,7 @@ Your browser will open for Google sign-in. After you authenticate, the token is 
 
 ### Option A: Start from the web (recommended for new projects)
 
-1. Head to [devdash.dev](https://devdash.dev) and sign in
+1. Head to [dev-dash-blue.vercel.app](https://dev-dash-blue.vercel.app) and sign in
 2. You'll land on the **onboarding page** — click **Connect GitHub**
 3. Pick a repo from the list (or enter a project name manually)
 4. Hit **Create Project**
