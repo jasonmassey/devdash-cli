@@ -1381,55 +1381,33 @@ Use \`DD_PROJECT_ID=<full-uuid> ${dd_cmd} <command>\` to target a specific proje
 > Use \`${dd_cmd}\` (dev-dash CLI) for ALL task tracking — never \`bd\`.
 $([ -n "$project_header" ] && echo "" && echo "$project_header")
 
-# SESSION CLOSE PROTOCOL
-
-**CRITICAL**: Before saying "done" or "complete", you MUST run this checklist:
-
-\`\`\`
-[ ] 1. git status              (check what changed)
-[ ] 2. git add <files>         (stage code changes)
-[ ] 3. git commit -m "..."     (commit code)
-[ ] 4. git push                (push to remote)
-[ ] 5. ${dd_cmd} close <id>    (mark task complete — AFTER push succeeds)
-\`\`\`
-
-**NEVER skip this.** Work is not done until pushed AND the issue is closed.
-
-## Core Rules (MANDATORY)
+## Rules (MANDATORY)
 - **Issue-first**: Create a ${dd_cmd} issue BEFORE writing code. No exceptions.
-- **Issue-per-commit**: Every git commit must correspond to a ${dd_cmd} issue. If scope expands or you do follow-up work, create new issues for the additional commits.
-- **Pre-commit checkpoint**: Before each \`git commit\`, verify you have a ${dd_cmd} issue for this work. If not, create one immediately.
+- **Issue-per-commit**: Every git commit must map to a ${dd_cmd} issue. If scope expands, create new issues.
+- **Mark in-progress**: \`${dd_cmd} update <id> --status=in_progress\` before starting work.
+- **Pre-commit checkpoint**: Before each \`git commit\`, verify you have an issue. If not, create one.
 - **Close after push**: Only close issues after \`git push\` succeeds — never before.
-- **No orphaned work**: At session end, every commit must map to a closed ${dd_cmd} issue.
+- **No orphaned work**: At session end, every commit must map to a closed issue.
 - **Path**: \`$(command -v devdash 2>/dev/null || echo "devdash")\`
 - **Prohibited**: Do NOT use \`bd\`, TodoWrite, TaskCreate, or markdown files for task tracking
-- Session management: check \`${dd_cmd} ready\` for available work
 
-## Essential Commands
+## CLI Reference
 
-### Finding Work
-- \`${dd_cmd} ready\` — Show issues ready to work (no blockers)
-- \`${dd_cmd} list\` — All open issues
-- \`${dd_cmd} list --status=in_progress\` — Your active work
-- \`${dd_cmd} show <id>\` — Detailed issue view with dependencies
-- \`${dd_cmd} blocked\` — Show all blocked issues
+### Viewing issues
+- \`${dd_cmd} ready\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
+- \`${dd_cmd} list [--status=pending|in_progress|completed]\` — All issues, optionally filtered by status.
+- \`${dd_cmd} blocked\` — Pending issues with unsatisfied dependencies.
+- \`${dd_cmd} show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
+- \`${dd_cmd} stats\` — Project health: open/closed/blocked counts.
 
-### Creating & Updating
-- \`${dd_cmd} create --title="..." --type=task|bug|feature --priority=2\` — New issue
-  - Priority: 0-4 (0=critical, 2=medium, 4=backlog). NOT "high"/"medium"/"low"
-  - Optional: \`--description="..."\` \`--parent=<id>\`
-- \`${dd_cmd} update <id> --status=in_progress\` — Claim work
-- \`${dd_cmd} update <id> --owner=username\` — Assign to someone
-- \`${dd_cmd} update <id> --title/--description/--pre-instructions="..."\` — Update fields
-- \`${dd_cmd} close <id>\` — Mark complete
-- \`${dd_cmd} close <id1> <id2> ...\` — Close multiple issues at once
-- \`${dd_cmd} delete <id> [--force]\` — Delete a bead (with confirmation)
-- **Tip**: When creating multiple issues, use parallel subagents for efficiency
+### Creating & updating
+- \`${dd_cmd} create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
+- \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
+- \`${dd_cmd} close <id> [<id>...]\` — Mark one or many issues completed.
+- \`${dd_cmd} delete <id> [--force] [--cascade]\`
 
-### Dependencies & Blocking
-- \`${dd_cmd} dep add <issue> <depends-on>\` — Add dependency (issue depends on depends-on)
-- \`${dd_cmd} blocked\` — Show all blocked issues
-- \`${dd_cmd} show <id>\` — See what's blocking/blocked by this issue
+### Dependencies
+- \`${dd_cmd} dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 
 ### Jobs
 - \`${dd_cmd} jobs\` — List recent jobs
@@ -1437,31 +1415,23 @@ $([ -n "$project_header" ] && echo "" && echo "$project_header")
 - \`${dd_cmd} jobs log <id>\` — Full job output log
 - \`${dd_cmd} jobs failures\` — Recent failed jobs
 
-### Project Health
-- \`${dd_cmd} stats\` — Project statistics (open/closed/blocked counts)
-- \`${dd_cmd} sync\` — Trigger full reconcile with GitHub
-- \`${dd_cmd} reconcile-tasks\` — AI-powered backlog audit (--dry-run, --auto-fix, --json)
+### IDs
+Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 
-## Common Workflows
+### Priority
+0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Integers only.
 
-**Starting work:**
-\`\`\`bash
-${dd_cmd} ready                          # Find available work
-${dd_cmd} show <id>                      # Review issue details
-${dd_cmd} update <id> --status=in_progress  # Claim it
-\`\`\`
+## Workflow
 
-**Completing work:**
-\`\`\`bash
-${dd_cmd} close <id1> <id2> ...    # Close all completed issues at once
-\`\`\`
+### Starting work
+\`${dd_cmd} ready\` → \`${dd_cmd} show <id>\` → \`${dd_cmd} update <id> --status=in_progress\`
 
-**Creating dependent work:**
-\`\`\`bash
-${dd_cmd} create --title="Implement feature X" --type=feature
-${dd_cmd} create --title="Write tests for X" --type=task
-${dd_cmd} dep add <tests-id> <feature-id>  # Tests depend on Feature
-\`\`\`
+### Completing work
+\`git add\` → \`git commit\` → \`git push\` → \`${dd_cmd} close <id>\`
+Git operations MUST succeed before closing. Never run git and ${dd_cmd} close in parallel.
+
+### Creating dependent work
+\`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
 PRIME
 }
 
