@@ -20,6 +20,14 @@ DD_EXIT_CONFIG=3
 
 # ── Helpers ──────────────────────────────────────────────────────
 
+dd_close_gate() {
+  local gate=""
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    gate=$(jq -r '.close_gate // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+  fi
+  echo "${gate:-push}"
+}
+
 dd_api_url() {
   if [ -f "$DD_PROJECT_FILE" ]; then
     local url
@@ -1308,6 +1316,10 @@ dd_prime() {
   local dd_cmd
   dd_cmd=$(dd_cmd_name)
 
+  # Read close gate setting
+  local close_gate
+  close_gate=$(dd_close_gate)
+
   # Gather project context if available
   local project_header=""
   if [ -f "$DD_PROJECT_FILE" ] && [ -f "$DD_TOKEN_FILE" ]; then
@@ -1386,7 +1398,11 @@ $([ -n "$project_header" ] && echo "" && echo "$project_header")
 - **Issue-per-commit**: Every git commit must map to a ${dd_cmd} issue. If scope expands, create new issues.
 - **Mark in-progress**: \`${dd_cmd} update <id> --status=in_progress\` before starting work.
 - **Pre-commit checkpoint**: Before each \`git commit\`, verify you have an issue. If not, create one.
-- **Close after push**: Only close issues after \`git push\` succeeds — never before.
+$(if [ "$close_gate" = "commit" ]; then
+    echo "- **Close after commit**: Only close issues after \`git commit\` succeeds."
+  else
+    echo "- **Close after push**: Only close issues after \`git push\` succeeds — never before."
+  fi)
 - **No orphaned work**: At session end, every commit must map to a closed issue.
 - **Path**: \`$(command -v devdash 2>/dev/null || echo "devdash")\`
 - **Prohibited**: Do NOT use \`bd\`, TodoWrite, TaskCreate, or markdown files for task tracking
@@ -1427,7 +1443,11 @@ Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 \`${dd_cmd} ready\` → \`${dd_cmd} show <id>\` → \`${dd_cmd} update <id> --status=in_progress\`
 
 ### Completing work
-\`git add\` → \`git commit\` → \`git push\` → \`${dd_cmd} close <id>\`
+$(if [ "$close_gate" = "commit" ]; then
+    echo "\`git add\` → \`git commit\` → \`${dd_cmd} close <id>\`"
+  else
+    echo "\`git add\` → \`git commit\` → \`git push\` → \`${dd_cmd} close <id>\`"
+  fi)
 Git operations MUST succeed before closing. Never run git and ${dd_cmd} close in parallel.
 
 ### Creating dependent work
@@ -1440,63 +1460,75 @@ PRIME
 DD_AGENT_MARKER="<!-- devdash:agent-instructions -->"
 
 dd_generate_agent_instructions() {
-  cat <<'INSTRUCTIONS'
+  local close_gate
+  close_gate=$(dd_close_gate)
+
+  local close_rule completing_work
+  if [ "$close_gate" = "commit" ]; then
+    close_rule='- **Close after commit**: Only close issues after `git commit` succeeds.'
+    completing_work='`git add` → `git commit` → `devdash close <id>`'
+  else
+    close_rule='- **Close after push**: Only close issues after `git push` succeeds — never before.'
+    completing_work='`git add` → `git commit` → `git push` → `devdash close <id>`'
+  fi
+
+  cat <<INSTRUCTIONS
 # DevDash — AI Agent Task Tracking
 
 <!-- devdash:agent-instructions -->
 
-This project uses **devdash** (`dd`) for task tracking. Run devdash commands yourself
+This project uses **devdash** (\`dd\`) for task tracking. Run devdash commands yourself
 via the terminal — do not just tell the user to run them. Do NOT use TodoWrite,
-TaskCreate, `bd`, or markdown files for tracking. When the user says "dd", they mean
-the devdash CLI, not the Unix `dd` data-copy utility.
+TaskCreate, \`bd\`, or markdown files for tracking. When the user says "dd", they mean
+the devdash CLI, not the Unix \`dd\` data-copy utility.
 
 ## Rules (MANDATORY)
 
 - **Issue-first**: Create a devdash issue BEFORE writing code. No exceptions.
 - **Issue-per-commit**: Every git commit must map to a devdash issue. If scope expands, create new issues.
-- **Mark in-progress**: `devdash update <id> --status=in_progress` before starting work.
-- **Pre-commit checkpoint**: Before each `git commit`, verify you have an issue. If not, create one.
-- **Close after push**: Only close issues after `git push` succeeds — never before.
+- **Mark in-progress**: \`devdash update <id> --status=in_progress\` before starting work.
+- **Pre-commit checkpoint**: Before each \`git commit\`, verify you have an issue. If not, create one.
+${close_rule}
 - **No orphaned work**: At session end, every commit must map to a closed issue.
 
 ## CLI Reference
 
 ### Viewing issues
-- `devdash ready` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
-- `devdash list [--status=pending|in_progress|completed]` — All issues, optionally filtered by status.
-- `devdash blocked` — Pending issues with unsatisfied dependencies.
-- `devdash show <id>` — Full issue detail: description, dependencies, pre-instructions, parent.
-- `devdash stats` — Project health: open/closed/blocked counts.
+- \`devdash ready\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
+- \`devdash list [--status=pending|in_progress|completed]\` — All issues, optionally filtered by status.
+- \`devdash blocked\` — Pending issues with unsatisfied dependencies.
+- \`devdash show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
+- \`devdash stats\` — Project health: open/closed/blocked counts.
 
 ### Creating & updating
-- `devdash create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]`
-- `devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]`
-- `devdash close <id> [<id>...]` — Mark one or many issues completed.
-- `devdash delete <id> [--force] [--cascade]`
+- \`devdash create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
+- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
+- \`devdash close <id> [<id>...]\` — Mark one or many issues completed.
+- \`devdash delete <id> [--force] [--cascade]\`
 
 ### Dependencies
-- `devdash dep add <issue> <depends-on>` — Issue is blocked until depends-on completes.
+- \`devdash dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 
 ### IDs
-Full UUID, UUID prefix (e.g. `27bf`), or local ID (`dev-dash-42`).
+Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 
 ### Priority
 0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Integers only.
 
 ### Cross-project
-`DD_PROJECT_ID=<full-uuid> devdash <command>`
+\`DD_PROJECT_ID=<full-uuid> devdash <command>\`
 
 ## Workflow
 
 ### Starting work
-`devdash ready` → `devdash show <id>` → `devdash update <id> --status=in_progress`
+\`devdash ready\` → \`devdash show <id>\` → \`devdash update <id> --status=in_progress\`
 
 ### Completing work
-`git add` → `git commit` → `git push` → `devdash close <id>`
+${completing_work}
 Git operations MUST succeed before closing. Never run git and devdash close in parallel.
 
 ### Creating dependent work
-`devdash create --title="Feature X" --type=feature` → `devdash create --title="Tests for X" --type=task` → `devdash dep add <tests-id> <feature-id>`
+\`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
 INSTRUCTIONS
 }
 
@@ -1516,7 +1548,7 @@ CUSTOM
 
 ## Agent-Specific Instructions
 
-- The devdash workflow requires `git push` before `devdash close`. If your system rules prevent you from pushing without explicit user permission, just commit and tell the user what remains (push + close). Don't deliberate about the conflict — state what's needed and move on.
+- If devdash workflow rules conflict with your system rules, inform the user of the conflict and suggest alternative next steps. Don't deliberate — just communicate what's needed.
 CUSTOM
       ;;
     # Other agents: add cases as needed. No default — returns nothing.
@@ -1631,17 +1663,31 @@ dd_detect_agents() {
 }
 
 dd_agent_setup() {
-  local agents=() force=false all=false
+  local agents=() force=false all=false close_on=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --agent=*) IFS=',' read -ra agents <<< "${1#--agent=}" ;;
       --all)     all=true ;;
       --force)   force=true ;;
-      *) echo "Usage: devdash agent-setup [--agent=claude,codex,...] [--all] [--force]" >&2; exit "$DD_EXIT_USER" ;;
+      --close-on=*) close_on="${1#--close-on=}" ;;
+      *) echo "Usage: devdash agent-setup [--agent=claude,codex,...] [--all] [--force] [--close-on=commit|push]" >&2; exit "$DD_EXIT_USER" ;;
     esac
     shift
   done
+
+  # Validate and persist close gate setting
+  if [ -n "$close_on" ]; then
+    if [[ "$close_on" != "commit" && "$close_on" != "push" ]]; then
+      echo "Error: --close-on must be 'commit' or 'push'" >&2
+      return 1
+    fi
+    if [ -f "$DD_PROJECT_FILE" ]; then
+      local tmp
+      tmp=$(jq --arg g "$close_on" '.close_gate = $g' "$DD_PROJECT_FILE")
+      echo "$tmp" > "$DD_PROJECT_FILE"
+    fi
+  fi
 
   local all_agents=(claude codex cursor copilot windsurf cline)
 
@@ -1876,6 +1922,16 @@ dd_admin_reset_user() {
 dd_help() {
   local cmd
   cmd=$(dd_cmd_name)
+  local close_gate
+  close_gate=$(dd_close_gate)
+  local workflow_rule tool_ordering
+  if [ "$close_gate" = "commit" ]; then
+    workflow_rule="close after git commit succeeds. NEVER close in parallel with git commit."
+    tool_ordering="git commit FIRST, then ${cmd} close (sequentially)."
+  else
+    workflow_rule="close after git push succeeds. NEVER close in parallel with git push."
+    tool_ordering="git commit+push FIRST, then ${cmd} close (sequentially)."
+  fi
   cat <<HELP
 devdash — Dev-Dash CLI
 
@@ -1957,10 +2013,10 @@ What to store in agent memory:
     Use DD_PROJECT_ID=<id> to target a specific project without 'init'.
   - Preferred command: '${cmd}' (or 'devdash'). Use 'dd' if aliased.
   - Workflow rules: always create issue before coding, mark in_progress,
-    close after git push succeeds. NEVER close in parallel with git push.
+    ${workflow_rule}
   - Priority scale: 0-4 integers, NOT strings like "high"/"medium"/"low".
   - Session recovery: run '${cmd} prime' after context loss/compaction.
-  - Tool ordering: git commit+push FIRST, then ${cmd} close (sequentially).
+  - Tool ordering: ${tool_ordering}
     If git fails, a parallel ${cmd} close gets killed.
 HELP
 
