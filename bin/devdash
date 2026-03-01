@@ -958,6 +958,45 @@ dd_sync() {
   echo "$result" | jq '.'
 }
 
+dd_import() {
+  local pid
+  pid=$(dd_project_id)
+  local import_all=false
+  local issue_number=""
+  local state="open"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --all) import_all=true ;;
+      --state=*) state="${1#--state=}" ;;
+      [0-9]*) issue_number="$1" ;;
+      *) echo "Usage: devdash import <issue-number> | --all [--state=open|all]" >&2; exit "$DD_EXIT_USER" ;;
+    esac
+    shift
+  done
+
+  if [ "$import_all" = true ]; then
+    echo "Importing all ${state} GitHub issues..."
+    local body
+    body=$(jq -n --arg provider "github" --arg state "$state" '{provider: $provider, state: $state}')
+    local result
+    result=$(dd_api POST "/sync/${pid}/bulk-import" -d "$body")
+    local imported
+    imported=$(echo "$result" | dd_jq -r '.imported')
+    echo "Imported ${imported} issue(s)."
+  elif [ -n "$issue_number" ]; then
+    echo "Importing GitHub issue #${issue_number}..."
+    local result
+    result=$(dd_api POST "/sync/${pid}/issues/${issue_number}/import" -d '{}')
+    local bead_id
+    bead_id=$(echo "$result" | dd_jq -r '.beadId')
+    echo "Imported as bead ${bead_id}"
+  else
+    echo "Usage: devdash import <issue-number> | --all [--state=open|all]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+}
+
 dd_reconcile_tasks() {
   local pid
   pid=$(dd_project_id)
@@ -2017,6 +2056,8 @@ Commands:
                          (--dry-run (default), --auto-fix, --json)
   stats                  Show project statistics
   sync                   Trigger full reconcile with GitHub
+  import <num> | --all   Import GitHub issue(s) into the current project
+                         (--all imports all open issues, --state=open|all)
   prime                  Output AI-optimized workflow context (for agent injection)
   agent-setup            Write devdash instructions for AI agents
                          (--agent=claude,codex,... | --all) [--force]
@@ -2131,6 +2172,7 @@ case "${1:-help}" in
   reconcile-tasks) shift; dd_reconcile_tasks "$@" ;;
   stats)   dd_stats ;;
   sync)    dd_sync ;;
+  import)  shift; dd_import "$@" ;;
   prime)   dd_prime ;;
   admin)
     shift
