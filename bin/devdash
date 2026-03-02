@@ -1408,6 +1408,23 @@ dd_prime() {
         project_header="${project_header}
 **Health**: ${open:-0} open, ${ip:-0} in progress, ${blocked:-0} blocked"
       fi
+
+      # Include repo analysis if available
+      local has_analysis
+      has_analysis=$(echo "$project_info" | jq -r '.analysis.summary // empty' 2>/dev/null)
+      if [ -n "$has_analysis" ]; then
+        local a_summary a_type a_complexity a_stack
+        a_summary=$(echo "$project_info" | jq -r '.analysis.summary' 2>/dev/null)
+        a_type=$(echo "$project_info" | jq -r '.analysis.projectType // "unknown"' 2>/dev/null)
+        a_complexity=$(echo "$project_info" | jq -r '.analysis.complexity // "unknown"' 2>/dev/null)
+        a_stack=$(echo "$project_info" | jq -r '.analysis.techStack // [] | join(", ")' 2>/dev/null)
+        project_header="${project_header}
+
+## Repo Analysis
+${a_summary}
+- **Type**: ${a_type} | **Complexity**: ${a_complexity}
+- **Stack**: ${a_stack}"
+      fi
     fi
 
     # Fetch all projects for cross-repo reference table
