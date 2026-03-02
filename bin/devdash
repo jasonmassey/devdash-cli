@@ -200,13 +200,7 @@ dd_fetch_jobs() {
 dd_resolve_id() {
   local bead_id="$1" pid="$2" cached_beads="${3:-}"
 
-  # Full UUID (36 chars with dashes) — use directly
-  if [[ ${#bead_id} -eq 36 && "$bead_id" == *-*-*-*-* ]]; then
-    echo "$bead_id"
-    return
-  fi
-
-  # Need beads for local ID or prefix lookup
+  # Need beads for all lookups (including full UUID validation)
   local all_beads
   if [ -n "$cached_beads" ]; then
     all_beads="$cached_beads"
@@ -226,12 +220,13 @@ dd_resolve_id() {
     return
   fi
 
-  # Short prefix — match against all beads
+  # Match by prefix (works for both full UUIDs and short prefixes)
   local matches
   matches=$(echo "$all_beads" | jq -r --arg b "$bead_id" '[.[] | select(.id | startswith($b))] | .[].id')
 
   if [ -z "$matches" ]; then
-    echo "Bead not found matching prefix: $bead_id" >&2
+    echo "Bead not found in this project: $bead_id" >&2
+    echo "Hint: check your working directory or use DD_PROJECT_ID" >&2
     return 1
   fi
 
