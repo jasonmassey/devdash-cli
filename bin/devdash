@@ -365,6 +365,39 @@ s.serve_forever()
   fi
 }
 
+# Helper for dd_init: interactively create a new project and echo its ID.
+# Uses $remote (from caller scope) if available.
+dd_init_create_project() {
+  local default_name
+  if [ -n "${remote:-}" ]; then
+    default_name=$(basename "$remote")
+  else
+    default_name=$(basename "$(pwd)")
+  fi
+
+  local name
+  printf "Project name [%s]: " "$default_name"
+  read -r name </dev/tty 2>/dev/null || name=""
+  name="${name:-$default_name}"
+
+  local repo="${remote:-}"
+
+  local body
+  body=$(jq -n \
+    --arg name "$name" \
+    --arg githubRepo "$repo" \
+    '{name: $name} + (if $githubRepo != "" then {githubRepo: $githubRepo} else {} end)')
+
+  local result
+  result=$(dd_api POST "/projects" -d "$body")
+  local id
+  id=$(echo "$result" | jq -r '.id')
+  local pname
+  pname=$(echo "$result" | jq -r '.name')
+  echo "Created project: ${pname} (${id})" >&2
+  echo "$id"
+}
+
 dd_init() {
   local selector="${1:-}"
 
@@ -444,37 +477,53 @@ dd_init() {
     count=$(echo "$projects" | jq 'length' 2>/dev/null)
 
     if [ "$count" = "0" ]; then
-      echo "No projects found. Create one first:" >&2
-      echo "  devdash project create --name=\"My Project\"" >&2
-      exit "$DD_EXIT_CONFIG"
+      if [ -t 0 ]; then
+        echo "No projects found. Let's create one."
+        pid=$(dd_init_create_project)
+      else
+        echo "No projects found. Create one first:" >&2
+        echo "  devdash project create --name=\"My Project\"" >&2
+        exit "$DD_EXIT_CONFIG"
+      fi
     fi
 
-    echo "Could not auto-detect project.${remote:+ Git remote: ${remote}}"
-    echo ""
-    echo "Available projects:"
+    if [ -z "$pid" ]; then
+      echo "Could not auto-detect project.${remote:+ Git remote: ${remote}}"
+      echo ""
+      echo "Available projects:"
 
-    # Show numbered list
-    echo "$projects" | jq -r 'to_entries[] | "  \(.key + 1). \(.value.name)  (\(.value.githubRepo // "no repo"))  [\(.value.id | .[0:8])]"'
-    echo ""
+      # Show numbered list
+      echo "$projects" | jq -r 'to_entries[] | "  \(.key + 1). \(.value.name)  (\(.value.githubRepo // "no repo"))  [\(.value.id | .[0:8])]"'
+      local create_num=$(( count + 1 ))
+      echo "  ${create_num}. Create new project"
+      echo ""
 
-    if [ -t 0 ]; then
-      printf "Select project number: "
-      read -r choice </dev/tty 2>/dev/null || { echo "No input available." >&2; exit "$DD_EXIT_USER"; }
-      if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
-        pid=$(echo "$projects" | jq -r ".[$((choice - 1))].id" 2>/dev/null)
+      if [ -t 0 ]; then
+        printf "Select project number: "
+        read -r choice </dev/tty 2>/dev/null || { echo "No input available." >&2; exit "$DD_EXIT_USER"; }
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$create_num" ]; then
+          if [ "$choice" -eq "$create_num" ]; then
+            pid=$(dd_init_create_project)
+          else
+            pid=$(echo "$projects" | jq -r ".[$((choice - 1))].id" 2>/dev/null)
+          fi
+        else
+          echo "Invalid selection." >&2
+          exit "$DD_EXIT_USER"
+        fi
       else
-        echo "Invalid selection." >&2
+        echo "Run: devdash init <name-or-id>" >&2
         exit "$DD_EXIT_USER"
       fi
-    else
-      echo "Run: devdash init <name-or-id>" >&2
-      exit "$DD_EXIT_USER"
     fi
   fi
 
   # Write config
   local pname
   pname=$(echo "$projects" | jq -r --arg id "$pid" '.[] | select(.id == $id) | .name' 2>/dev/null)
+  if [ -z "$pname" ]; then
+    pname=$(dd_api GET "/projects/${pid}" | jq -r '.name' 2>/dev/null)
+  fi
   local api_url
   api_url=$(dd_api_url)
   echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${pid}\"}" > "$DD_PROJECT_FILE"
@@ -1561,9 +1610,9 @@ dd_generate_agent_instructions() {
   fi
 
   cat <<INSTRUCTIONS
-# DevDash — AI Agent Task Tracking
-
 <!-- devdash:agent-instructions -->
+
+# DevDash — AI Agent Task Tracking
 
 This project uses **devdash** (\`dd\`) for task tracking. Run devdash commands yourself
 via the terminal — do not just tell the user to run them. Do NOT use TodoWrite,
@@ -1641,7 +1690,10 @@ dd_agent_custom_instructions() {
 
 ## Agent-Specific Instructions
 
-- [claude-specific tuning goes here]
+- You may use your built-in task tools (TaskCreate, TodoWrite, etc.) for your own tracking, but you **must also** create and update devdash issues. Devdash is the system of record.
+- When the user asks you to implement a plan, feature, or fix: your **very first action** is `devdash create`. Do not read files, do not write code — create the issue first.
+- For multi-step plans, create one devdash issue per logical unit of work before starting any implementation.
+- After creating issues, follow the normal workflow: mark in-progress, do the work, commit, then close.
 CUSTOM
       ;;
     cursor)
