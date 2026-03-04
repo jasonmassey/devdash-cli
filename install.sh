@@ -26,7 +26,7 @@ fi
 # Prefer npm if available
 if command -v npm &>/dev/null; then
   echo "npm detected — installing via npm (recommended)..."
-  npm install -g devdash-cli
+  npm install -g @devdashproject/devdash-cli
   echo ""
   echo "Installed: $(devdash --version)"
   exit 0

@@ -1392,14 +1392,45 @@ dd_alias_setup() {
 }
 
 dd_self_update() {
-  if command -v npm &>/dev/null; then
-    echo "Updating via npm..."
-    npm update -g devdash-cli
+  local old_version="$DD_VERSION"
+  local real_path
+  real_path=$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")
+
+  # Detect install method from binary path
+  if [[ "$real_path" == *"/node_modules/"* ]]; then
+    # npm global install
+    echo "Detected npm install. Updating..."
+    npm install -g @devdashproject/devdash-cli@latest
+  elif [[ "$real_path" == /opt/homebrew/* ]] || [[ "$real_path" == /usr/local/Cellar/* ]]; then
+    # Homebrew install
+    echo "Detected Homebrew install. Updating..."
+    brew upgrade devdash
+  elif git -C "$(dirname "$real_path")" rev-parse --is-inside-work-tree &>/dev/null; then
+    # Git clone / local dev
+    local repo_root
+    repo_root=$(git -C "$(dirname "$real_path")" rev-parse --show-toplevel 2>/dev/null)
+    echo "Detected git clone at ${repo_root}."
+    echo "Run 'git -C \"${repo_root}\" pull' to update."
+    return 0
   else
-    echo "npm not found. Install Node.js or update manually." >&2
-    exit "$DD_EXIT_CONFIG"
+    # Direct download — re-download from GitHub
+    local install_dir
+    install_dir=$(dirname "$real_path")
+    echo "Detected standalone install at ${real_path}. Downloading latest..."
+    curl -fsSL "https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/bin/devdash" \
+      -o "${real_path}" \
+      || { echo "Download failed." >&2; exit "$DD_EXIT_CONFIG"; }
+    chmod +x "${real_path}"
   fi
-  echo "Updated to $(devdash --version)"
+
+  # Compare versions
+  local new_version
+  new_version=$("$real_path" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+  if [ "$new_version" = "$old_version" ]; then
+    echo "Already up to date (v${old_version})."
+  else
+    echo "Updated v${old_version} → v${new_version}."
+  fi
 }
 
 dd_prime() {
