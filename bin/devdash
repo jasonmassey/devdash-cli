@@ -1886,7 +1886,9 @@ dd_agent_setup() {
     else
       printf "Install for: [a]ll / [p]ick numbers (e.g. 1,3,5)? "
     fi
-    read -r choice </dev/tty 2>/dev/null || choice="a"
+    local default_choice="a"
+    [ ${#detected[@]} -gt 0 ] && default_choice="d"
+    read -r choice </dev/tty 2>/dev/null || choice="$default_choice"
 
     case "$choice" in
       d|D|detected)
@@ -1896,8 +1898,15 @@ dd_agent_setup() {
         fi
         agents=("${detected[@]}")
         ;;
-      a|A|all|"")
+      a|A|all)
         agents=("${all_agents[@]}")
+        ;;
+      "")
+        if [ ${#detected[@]} -gt 0 ]; then
+          agents=("${detected[@]}")
+        else
+          agents=("${all_agents[@]}")
+        fi
         ;;
       p|P|pick)
         printf "Enter numbers (comma-separated, e.g. 1,3,5): "
