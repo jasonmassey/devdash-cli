@@ -1836,11 +1836,12 @@ ${block}"
 }
 
 dd_detect_agents() {
-  # Print names of agents whose config locations already exist
+  # Print names of agents whose instruction files already exist
+  # Only detect based on the specific file we'd write to, not just the parent directory
   [ -d ".claude" ] || [ -f "CLAUDE.md" ] && echo "claude"
   [ -f "AGENTS.md" ] && echo "codex"
-  [ -d ".cursor" ] && echo "cursor"
-  [ -d ".github" ] && echo "copilot"
+  [ -d ".cursor/rules" ] && echo "cursor"
+  [ -f ".github/copilot-instructions.md" ] && echo "copilot"
   [ -f ".windsurfrules" ] && echo "windsurf"
   [ -f ".clinerules" ] && echo "cline"
   return 0
@@ -1942,20 +1943,27 @@ dd_agent_setup() {
       p|P|pick)
         printf "Enter numbers (comma-separated, e.g. 1,3,5): "
         read -r nums </dev/tty 2>/dev/null || nums=""
+        nums=$(echo "$nums" | tr -cd '0-9, ')
         IFS=',' read -ra picks <<< "$nums"
         for n in ${picks[@]+"${picks[@]}"}; do
           n=$(echo "$n" | tr -d ' ')
-          if [ "$n" -ge 1 ] && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
+          if [ -n "$n" ] && [ "$n" -ge 1 ] 2>/dev/null && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
             agents+=("${all_agents[$((n - 1))]}")
           fi
         done
         ;;
       *)
-        # Try interpreting as comma-separated numbers
-        IFS=',' read -ra picks <<< "$choice"
+        # Try interpreting as comma-separated numbers (strip any non-printable chars)
+        local clean_choice
+        clean_choice=$(echo "$choice" | tr -cd '0-9, ')
+        if [ -z "$clean_choice" ]; then
+          echo "Invalid input. Run 'devdash agent-setup' to try again."
+          return
+        fi
+        IFS=',' read -ra picks <<< "$clean_choice"
         for n in ${picks[@]+"${picks[@]}"}; do
           n=$(echo "$n" | tr -d ' ')
-          if [ "$n" -ge 1 ] && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
+          if [ -n "$n" ] && [ "$n" -ge 1 ] 2>/dev/null && [ "$n" -le ${#all_agents[@]} ] 2>/dev/null; then
             agents+=("${all_agents[$((n - 1))]}")
           fi
         done
@@ -1970,12 +1978,6 @@ dd_agent_setup() {
 
   echo ""
   echo "Writing devdash instructions..."
-
-  # Write the canonical instructions file
-  # .devdash is typically a file (project config), so use .devdash-agents/ dir
-  mkdir -p .devdash-agents
-  dd_generate_agent_instructions > .devdash-agents/agent-instructions.md
-  echo "  wrote: .devdash-agents/agent-instructions.md"
 
   # Write per-agent configs
   for agent in "${agents[@]}"; do
