@@ -376,7 +376,7 @@ dd_init_create_project() {
   fi
 
   local name
-  printf "Project name [%s]: " "$default_name"
+  printf "Project name [%s]: " "$default_name" >&2
   read -r name </dev/tty 2>/dev/null || name=""
   name="${name:-$default_name}"
 
