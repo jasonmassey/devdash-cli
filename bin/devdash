@@ -592,6 +592,7 @@ dd_show() {
     blockedBy: .blockedBy,
     blocks: .blocks,
     preInstructions: .preInstructions,
+    completionResult: .completionResult,
     createdAt: .createdAt,
     updatedAt: .updatedAt
   }'
@@ -701,8 +702,8 @@ dd_close() {
       --arg pr "$pr" \
       --arg commit "$commit" \
       --arg summary "$summary" \
-      '{} + (if $pr != "" then {pr: $pr} else {} end)
-         + (if $commit != "" then {commit: $commit} else {} end)
+      '{} + (if $pr != "" then {prUrl: $pr} else {} end)
+         + (if $commit != "" then {commitSha: $commit} else {} end)
          + (if $summary != "" then {summary: $summary} else {} end)')
   fi
 
