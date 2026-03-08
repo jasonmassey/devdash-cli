@@ -676,13 +676,54 @@ dd_update() {
 }
 
 dd_close() {
+  local pr="" commit="" summary=""
+  local bead_ids=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pr=*) pr="${1#--pr=}" ;;
+      --commit=*) commit="${1#--commit=}" ;;
+      --summary=*) summary="${1#--summary=}" ;;
+      *) bead_ids+=("$1") ;;
+    esac
+    shift
+  done
+
+  if [ ${#bead_ids[@]} -eq 0 ]; then
+    echo "Usage: devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary=\"...\"]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  # Build completionResult JSON when any flags are provided
+  local completion_result=""
+  if [ -n "$pr" ] || [ -n "$commit" ] || [ -n "$summary" ]; then
+    completion_result=$(jq -n \
+      --arg pr "$pr" \
+      --arg commit "$commit" \
+      --arg summary "$summary" \
+      '{} + (if $pr != "" then {pr: $pr} else {} end)
+         + (if $commit != "" then {commit: $commit} else {} end)
+         + (if $summary != "" then {summary: $summary} else {} end)')
+  fi
+
   local pid
   pid=$(dd_project_id)
 
-  for bead_id in "$@"; do
+  for bead_id in "${bead_ids[@]}"; do
     local uuid
     uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
-    dd_api PATCH "/beads/${uuid}" -d "{\"projectId\": \"${pid}\", \"status\": \"completed\"}" > /dev/null
+
+    local body
+    if [ -n "$completion_result" ]; then
+      body=$(jq -n \
+        --arg pid "$pid" \
+        --argjson cr "$completion_result" \
+        '{projectId: $pid, status: "completed", completionResult: $cr}')
+    else
+      body="{\"projectId\": \"${pid}\", \"status\": \"completed\"}"
+    fi
+
+    dd_api PATCH "/beads/${uuid}" -d "$body" > /dev/null
     echo "Closed: ${uuid}"
   done
 }
@@ -1566,7 +1607,7 @@ $(if [ "$close_gate" = "commit" ]; then
 ### Creating & updating
 - \`${dd_cmd} create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
 - \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
-- \`${dd_cmd} close <id> [<id>...]\` — Mark one or many issues completed.
+- \`${dd_cmd} close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`${dd_cmd} delete <id> [--force] [--cascade]\`
 
 ### Dependencies
@@ -1671,7 +1712,7 @@ ${close_rule}
 ### Creating & updating
 - \`devdash create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
 - \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
-- \`devdash close <id> [<id>...]\` — Mark one or many issues completed.
+- \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`devdash delete <id> [--force] [--cascade]\`
 
 ### Dependencies
@@ -2149,6 +2190,7 @@ Commands:
   update <id> --key=val  Update bead fields (--status, --priority, --owner, --title,
                          --description, --pre-instructions)
   close <id> [<id>...]   Close one or more beads
+                         (--pr=URL, --commit=SHA, --summary="...")
   delete <id> [--force] [--cascade]
                          Delete a bead (--cascade deletes children too)
   analyze <bead-id>      Analyze a bead: complexity, files, agent instructions
@@ -2196,6 +2238,7 @@ Flag values (exact strings the CLI accepts):
   create flags:          --title="..." --type=task --priority=2 --description="..." --parent=<id>
   update flags:          --status=in_progress --priority=1 --owner=name --title="..."
                          --description="..." --pre-instructions="..."
+  close flags:           --pr=URL --commit=SHA --summary="..." (completion metadata)
   delete flags:          --force (skip confirmation) --cascade (delete children)
   dispatch flags:        --priority=N --worker=e2b|docker|railway
 

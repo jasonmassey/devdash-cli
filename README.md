@@ -83,7 +83,7 @@ devdash blocked                           # See what's waiting
 | `show <id>` | Task details with dependencies |
 | `create --title="..."` | Create task (`--type`, `--priority`, `--description`, `--parent`) |
 | `update <id> --key=val` | Update fields (`--status`, `--priority`, `--owner`, `--title`, `--description`, `--pre-instructions`) |
-| `close <id> [...]` | Close one or more tasks |
+| `close <id> [...] [--pr=URL] [--commit=SHA] [--summary="..."]` | Close one or more tasks (with optional completion metadata) |
 | `delete <id> [--force]` | Delete a task (with confirmation prompt) |
 | `dep add <id> <dep-id>` | Add dependency (id depends on dep-id) |
 | `jobs [list\|show\|log\|failures]` | Manage agent jobs |
