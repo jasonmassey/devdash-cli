@@ -729,6 +729,81 @@ dd_close() {
   done
 }
 
+dd_stale() {
+  local pid
+  pid=$(dd_project_id)
+  local beads
+  beads=$(dd_fetch_beads "$pid")
+
+  # Filter to in_progress beads that have staleMinutes > 0
+  local stale
+  stale=$(echo "$beads" | jq '[.[] | select(.status == "in_progress" and .staleMinutes != null and .staleMinutes > 0)] | sort_by(-.staleMinutes)')
+
+  local count
+  count=$(echo "$stale" | jq 'length')
+  if [ "$count" -eq 0 ]; then
+    echo "No stale in-progress issues found."
+    return
+  fi
+
+  echo "Stale in-progress issues ($count):"
+  echo ""
+  echo "$stale" | jq -r '.[] | "  ⚠ \(.localBeadId // .id) — \(.subject)\n    Stale for \(.staleMinutes)m (since \(.staleSince // "unknown"))\n"'
+}
+
+dd_report() {
+  local bead_id="${1:-}"
+  if [ -n "$bead_id" ]; then shift; fi
+  local pid
+  pid=$(dd_project_id)
+
+  if [ -z "$bead_id" ]; then
+    echo "Usage: devdash report <id> --status=code_complete|committed|pushed|error [--summary=\"...\"] [--files-changed=N] [--branch=name] [--commit=sha] [--error=\"...\"]" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local uuid
+  uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
+
+  local status="" summary="" files_changed="" branch="" commit="" error_msg=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status=*) status="${1#--status=}" ;;
+      --summary=*) summary="${1#--summary=}" ;;
+      --files-changed=*) files_changed="${1#--files-changed=}" ;;
+      --branch=*) branch="${1#--branch=}" ;;
+      --commit=*) commit="${1#--commit=}" ;;
+      --error=*) error_msg="${1#--error=}" ;;
+    esac
+    shift
+  done
+
+  if [ -z "$status" ]; then
+    echo "Usage: devdash report <id> --status=code_complete|committed|pushed|error" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local body
+  body=$(jq -n \
+    --arg projectId "$pid" \
+    --arg status "$status" \
+    --arg summary "$summary" \
+    --arg filesChanged "$files_changed" \
+    --arg branch "$branch" \
+    --arg commitSha "$commit" \
+    --arg error "$error_msg" \
+    '{projectId: $projectId, status: $status}
+      + (if $summary != "" then {summary: $summary} else {} end)
+      + (if $filesChanged != "" then {filesChanged: ($filesChanged | tonumber)} else {} end)
+      + (if $branch != "" then {branch: $branch} else {} end)
+      + (if $commitSha != "" then {commitSha: $commitSha} else {} end)
+      + (if $error != "" then {error: $error} else {} end)')
+
+  dd_api POST "/beads/${uuid}/report" -d "$body" > /dev/null
+  echo "Report submitted: ${status} for ${uuid}"
+}
+
 dd_delete() {
   local force=false
   local cascade=false
@@ -2192,6 +2267,10 @@ Commands:
                          --description, --pre-instructions)
   close <id> [<id>...]   Close one or more beads
                          (--pr=URL, --commit=SHA, --summary="...")
+  stale                  List stale in-progress issues (no recent activity)
+  report <id>            Submit agent exit report
+                         (--status=code_complete|committed|pushed|error,
+                          --summary, --files-changed, --branch, --commit, --error)
   delete <id> [--force] [--cascade]
                          Delete a bead (--cascade deletes children too)
   analyze <bead-id>      Analyze a bead: complexity, files, agent instructions
@@ -2308,6 +2387,8 @@ case "${1:-help}" in
   create)  shift; dd_create "$@" ;;
   update)  shift; dd_update "$@" ;;
   close)   shift; dd_close "$@" ;;
+  stale)   dd_stale ;;
+  report)  shift; dd_report "$@" ;;
   delete)  shift; dd_delete "$@" ;;
   analyze)  shift; dd_analyze "$@" ;;
   dispatch) shift; dd_dispatch "$@" ;;
