@@ -33,9 +33,6 @@ teardown_api_test
 
 # list with empty project
 setup_api_test
-cp "${TEST_DIR}/fixtures/GET_beads_empty.json" "${MOCK_CURL_FIXTURE_DIR}/GET_beads.json.bak"
-cp "${TEST_DIR}/fixtures/GET_beads_empty.json" "${_MOCK_WORKDIR}/.beads_empty"
-# Use a custom fixture dir for this test
 _empty_dir=$(mktemp -d)
 cp "${TEST_DIR}/fixtures/GET_beads_empty.json" "${_empty_dir}/GET_beads.json"
 export MOCK_CURL_FIXTURE_DIR="$_empty_dir"
