@@ -334,3 +334,86 @@ echo "not valid json" > "${_MOCK_WORKDIR}/.devdash"
 set +e; (cd "$_MOCK_WORKDIR" && "$DEVDASH" list >/dev/null 2>&1); code=$?; set -e
 if [ "$code" -eq 3 ]; then pass "invalid .devdash exits 3"; else fail "invalid .devdash exits 3 (got $code)"; fi
 teardown_api_test
+
+# ── jobs --bead ─────────────────────────────────────
+echo "-- jobs --bead --"
+
+# jobs --bead filters to matching bead
+setup_api_test
+output=$(run_dd jobs --bead=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "jobs --bead shows matching job" "11111111" echo "$output"
+assert_contains "jobs --bead shows second matching job" "22222222" echo "$output"
+assert_not_contains "jobs --bead hides other bead's jobs" "33333333" echo "$output"
+teardown_api_test
+
+# jobs --bead with local ID
+setup_api_test
+output=$(run_dd jobs --bead=dev-dash-1 2>&1) || true
+assert_contains "jobs --bead with local ID works" "11111111" echo "$output"
+assert_not_contains "jobs --bead local ID hides other" "33333333" echo "$output"
+teardown_api_test
+
+# jobs failures --bead filters failures by bead
+setup_api_test
+output=$(run_dd jobs failures --bead=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "jobs failures --bead shows failed job" "22222222" echo "$output"
+assert_not_contains "jobs failures --bead hides other bead" "33333333" echo "$output"
+teardown_api_test
+
+# ── diagnose ────────────────────────────────────────
+echo "-- diagnose --"
+
+# diagnose shows bead subject
+setup_api_test
+output=$(run_dd diagnose aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "diagnose shows bead subject" "Implement auth flow" echo "$output"
+teardown_api_test
+
+# diagnose shows job history
+setup_api_test
+output=$(run_dd diagnose aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "diagnose shows Jobs header" "Jobs (2)" echo "$output"
+assert_contains "diagnose shows completed job" "11111111" echo "$output"
+assert_contains "diagnose shows failed job" "22222222" echo "$output"
+teardown_api_test
+
+# diagnose shows failure error message
+setup_api_test
+output=$(run_dd diagnose aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "diagnose shows error" "npm test failed" echo "$output"
+assert_contains "diagnose shows Latest Failure header" "Latest Failure" echo "$output"
+teardown_api_test
+
+# diagnose shows failure analysis
+setup_api_test
+output=$(run_dd diagnose aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "diagnose shows analysis" "Test assertion failed" echo "$output"
+teardown_api_test
+
+# diagnose shows log tail
+setup_api_test
+output=$(run_dd diagnose aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "diagnose shows log section" "Log (last 30 lines)" echo "$output"
+assert_contains "diagnose shows log content" "line1" echo "$output"
+teardown_api_test
+
+# diagnose without ID exits 1
+assert_exit "diagnose without ID exits 1" 1 "$DEVDASH" diagnose
+
+# ── jobs log --tail ─────────────────────────────────
+echo "-- jobs log --tail --"
+
+# jobs log --tail shows only last N lines
+setup_api_test
+output=$(run_dd jobs log 22222222-2222-2222-2222-222222222222 --tail=5 2>&1) || true
+assert_contains "jobs log --tail shows last line" "line30" echo "$output"
+assert_contains "jobs log --tail shows line26" "line26" echo "$output"
+assert_not_contains "jobs log --tail hides early lines" "line25" echo "$output"
+teardown_api_test
+
+# jobs log without --tail shows full log
+setup_api_test
+output=$(run_dd jobs log 22222222-2222-2222-2222-222222222222 2>&1) || true
+assert_contains "jobs log full shows first line" "line1" echo "$output"
+assert_contains "jobs log full shows last line" "line30" echo "$output"
+teardown_api_test

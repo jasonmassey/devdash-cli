@@ -649,6 +649,75 @@ dd_show() {
   } + (if .staleSince != null then {staleSince: .staleSince, staleMinutes: .staleMinutes} else {} end)'
 }
 
+dd_diagnose() {
+  if [ -z "${1:-}" ]; then
+    echo "Usage: devdash diagnose <bead-id>" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local pid
+  pid=$(dd_project_id)
+  local uuid
+  uuid=$(dd_resolve_id "$1" "$pid") || exit 1
+
+  # Fetch bead details
+  local bead
+  bead=$(dd_api GET "/beads/${uuid}?projectId=${pid}")
+
+  # Display bead summary
+  echo "── Bead ──"
+  echo "$bead" | jq -r '"\(.id[0:8])  \(.subject)  [\(.status)] [P\(.priority)] [\(.beadType // "task")]"'
+  echo ""
+
+  # Fetch and filter jobs for this bead
+  local all_jobs bead_jobs job_count
+  all_jobs=$(dd_fetch_jobs "$pid")
+  bead_jobs=$(echo "$all_jobs" | jq --arg bid "$uuid" '[.[] | select(.bead_id == $bid)]')
+  job_count=$(echo "$bead_jobs" | jq 'length')
+
+  echo "── Jobs ($job_count) ──"
+  if [ "$job_count" -eq 0 ]; then
+    echo "No jobs found"
+  else
+    echo "$bead_jobs" | jq -r '.[] | "\(.status | if . == "completed" then "✓" elif . == "failed" then "✗" elif . == "running" then "●" else "○" end) \(.id[0:8])  [\(.status)]  \(.created_at // "")"'
+  fi
+  echo ""
+
+  # Find latest failed job
+  local failed
+  failed=$(echo "$bead_jobs" | jq '[.[] | select(.status == "failed")] | sort_by(.created_at) | last // empty')
+
+  if [ -z "$failed" ]; then
+    echo "No failures found"
+    return
+  fi
+
+  local failed_id
+  failed_id=$(echo "$failed" | jq -r '.id')
+
+  # Fetch full job for details and output_log
+  local full_job
+  full_job=$(dd_api GET "/jobs/${failed_id}")
+
+  echo "── Latest Failure: $(echo "$failed" | jq -r '.id[0:8]') ──"
+  echo "Error: $(echo "$full_job" | jq -r '.error // "unknown"')"
+
+  # Show failure analysis if present
+  local analysis
+  analysis=$(echo "$full_job" | jq -r '.failureAnalysis.summary // empty')
+  if [ -n "$analysis" ]; then
+    echo "Analysis: $analysis"
+  fi
+
+  local log_output
+  log_output=$(echo "$full_job" | jq -r '.output_log // empty')
+  if [ -n "$log_output" ]; then
+    echo ""
+    echo "Log (last 30 lines):"
+    echo "$log_output" | tail -n 30 | sed 's/^/  /'
+  fi
+}
+
 dd_create() {
   local pid
   pid=$(dd_project_id)
@@ -979,12 +1048,34 @@ dd_stats() {
 dd_jobs() {
   local pid
   pid=$(dd_project_id)
+
+  # Parse --bead and --tail flags from any position
+  local bead_filter="" tail_lines="" args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --bead=*) bead_filter="${1#--bead=}" ;;
+      --tail=*) tail_lines="${1#--tail=}" ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  set -- "${args[@]+"${args[@]}"}"
+
   local subcmd="${1:-list}"
+
+  # Resolve bead filter to UUID if specified
+  local bead_uuid=""
+  if [ -n "$bead_filter" ]; then
+    bead_uuid=$(dd_resolve_id "$bead_filter" "$pid") || exit 1
+  fi
 
   case "$subcmd" in
     list)
       local jobs
       jobs=$(dd_fetch_jobs "$pid")
+      if [ -n "$bead_uuid" ]; then
+        jobs=$(echo "$jobs" | jq --arg bid "$bead_uuid" '[.[] | select(.bead_id == $bid)]')
+      fi
       echo "$jobs" | jq -r '.[] | "\(.status | if . == "completed" then "✓" elif . == "failed" then "✗" elif . == "running" then "●" else "○" end) \(.id[0:8]) [\(.status)] \(.prompt[0:70] // "no prompt")... \(.created_at // "")"'
       ;;
     show)
@@ -1013,15 +1104,24 @@ dd_jobs() {
       fi
       local job
       job=$(dd_api GET "/jobs/${2}")
-      echo "$job" | jq -r '.output_log // "No log available"'
+      local log_output
+      log_output=$(echo "$job" | jq -r '.output_log // "No log available"')
+      if [ -n "$tail_lines" ]; then
+        echo "$log_output" | tail -n "$tail_lines"
+      else
+        echo "$log_output"
+      fi
       ;;
     failures)
       local jobs
       jobs=$(dd_fetch_jobs "$pid")
+      if [ -n "$bead_uuid" ]; then
+        jobs=$(echo "$jobs" | jq --arg bid "$bead_uuid" '[.[] | select(.bead_id == $bid)]')
+      fi
       echo "$jobs" | jq -r '[.[] | select(.status == "failed")] | sort_by(.created_at) | reverse | .[:10] | .[] | "✗ \(.id[0:8]) \(.error // "unknown error" | .[0:80])  \(.created_at // "")"'
       ;;
     *)
-      echo "Usage: devdash jobs [list|show <id>|log <id>|failures]" >&2
+      echo "Usage: devdash jobs [list|show <id>|log <id>|failures] [--bead=<id>] [--tail=N]" >&2
       exit "$DD_EXIT_USER"
       ;;
   esac
@@ -2362,11 +2462,15 @@ Commands:
                          Delete a bead (--cascade deletes children too)
   analyze <bead-id>      Analyze a bead: complexity, files, agent instructions
   dispatch <bead-id>     Dispatch a bead as an agent job (--priority, --worker)
+  diagnose <id>          Investigate bead: status, job history, failure details
   dep add <id> <dep-id>  Add dependency (id depends on dep-id)
-  jobs [list]            List recent jobs
+  jobs [list] [--bead=<id>]
+                         List recent jobs (optionally filtered by bead)
   jobs show <id>         Show job details + failure analysis
-  jobs log <id>          Show full job output log
-  jobs failures          Show recent failed jobs
+  jobs log <id> [--tail=N]
+                         Show job output log (last N lines if specified)
+  jobs failures [--bead=<id>]
+                         Show recent failed jobs (optionally filtered by bead)
   reconcile-tasks        Audit backlog for stale/redundant/completed tasks
                          (--dry-run (default), --auto-fix, --json)
   stats                  Show project statistics
@@ -2487,6 +2591,7 @@ case "${1:-help}" in
       *) echo "Usage: devdash dep add <issue> <depends-on>" >&2; exit "$DD_EXIT_USER" ;;
     esac
     ;;
+  diagnose) shift; dd_diagnose "$@" ;;
   jobs)    shift; dd_jobs "$@" ;;
   reconcile-tasks) shift; dd_reconcile_tasks "$@" ;;
   stats)   dd_stats ;;
