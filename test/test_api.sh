@@ -94,8 +94,10 @@ assert_contains "create with positional title works" "Created" echo "$output"
 assert_api_body "create positional has subject" "POST" "/beads" "Positional title"
 teardown_api_test
 
-# create missing title
-assert_exit "create without title exits 1" 1 "$DEVDASH" create
+# create missing title (run_dd provides .devdash + token context)
+setup_api_test
+assert_exit "create without title exits 1" 1 run_dd create
+teardown_api_test
 
 # ── update ───────────────────────────────────────────
 echo "-- update --"

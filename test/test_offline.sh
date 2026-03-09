@@ -82,15 +82,24 @@ echo "-- error handling --"
 assert_exit "unknown command exits 1"     1 "$DEVDASH" xyzzy
 assert_contains "unknown command message" "Unknown command" "$DEVDASH" xyzzy
 assert_exit "show without args exits 1"   1 "$DEVDASH" show
-assert_exit "create without title exits 1" 1 "$DEVDASH" create
+# create calls dd_project_id() before checking title, so run in a dir with .devdash
+_err_dir="$(mktemp -d)"
+echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_err_dir}/.devdash"
+_err_config="$(mktemp -d)"
+echo "mock-token" > "${_err_config}/token"
+assert_exit "create without title exits 1" 1 \
+  env DD_CONFIG_DIR="$_err_config" DD_TOKEN_FILE="${_err_config}/token" bash -c "cd '$_err_dir' && '$DEVDASH' create"
+rm -rf "$_err_dir" "$_err_config"
 assert_exit "delete without args exits 1" 1 "$DEVDASH" delete
 
 # ── Unauthenticated ─────────────────────────────────
 echo "-- unauthenticated access --"
+_tmp_dir="$(mktemp -d)"
+echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_tmp_dir}/.devdash"
 _tmp_config_dir="$(mktemp -d)"
 _tmp_token_file="${_tmp_config_dir}/token"
 assert_contains "no-token shows login prompt" "devdash login" \
-  env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" "$DEVDASH" list
+  env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" bash -c "cd '$_tmp_dir' && '$DEVDASH' list"
 assert_exit "no-token exits 3 (config error)" 3 \
-  env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" "$DEVDASH" list
-rm -rf "$_tmp_config_dir"
+  env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" bash -c "cd '$_tmp_dir' && '$DEVDASH' list"
+rm -rf "$_tmp_dir" "$_tmp_config_dir"
