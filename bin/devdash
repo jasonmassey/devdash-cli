@@ -1712,6 +1712,228 @@ dd_self_update() {
   fi
 }
 
+dd_uninstall() {
+  local dry_run=false force=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) dry_run=true ;;
+      --force)   force=true ;;
+      *) echo "Usage: devdash uninstall [--dry-run] [--force]" >&2; exit "$DD_EXIT_USER" ;;
+    esac
+    shift
+  done
+
+  echo "devdash uninstall"
+  echo ""
+
+  # ── 1. Detect what was installed ──────────────────────────────
+  local items=()
+
+  # Shell alias
+  local shell_name shell_rc=""
+  shell_name=$(basename "${SHELL:-/bin/bash}")
+  case "$shell_name" in
+    zsh)  shell_rc="${HOME}/.zshrc" ;;
+    bash)
+      if [ -f "${HOME}/.bashrc" ]; then shell_rc="${HOME}/.bashrc"
+      else shell_rc="${HOME}/.bash_profile"; fi ;;
+    fish) shell_rc="${HOME}/.config/fish/config.fish" ;;
+    *)    shell_rc="${HOME}/.${shell_name}rc" ;;
+  esac
+  if [ -n "$shell_rc" ] && grep -q 'alias dd=devdash' "$shell_rc" 2>/dev/null; then
+    items+=("alias:${shell_rc}")
+  fi
+
+  # Agent instructions (in current repo)
+  local agent_files=("CLAUDE.md" "AGENTS.md" ".cursor/rules/devdash.mdc"
+                     ".github/copilot-instructions.md" ".windsurfrules" ".clinerules")
+  for f in "${agent_files[@]}"; do
+    if [ -f "$f" ] && grep -qF "$DD_AGENT_MARKER" "$f" 2>/dev/null; then
+      items+=("agent:${f}")
+    fi
+  done
+
+  # Project file
+  if [ -f "$DD_PROJECT_FILE" ]; then
+    items+=("project:${DD_PROJECT_FILE}")
+  fi
+
+  # Config directory (token, etc.)
+  if [ -d "$DD_CONFIG_DIR" ]; then
+    items+=("config:${DD_CONFIG_DIR}")
+  fi
+
+  # Binary
+  local real_path install_method=""
+  real_path=$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")
+  if [[ "$real_path" == *"/node_modules/"* ]]; then
+    install_method="npm"
+    items+=("binary:npm")
+  elif [[ "$real_path" == /opt/homebrew/* ]] || [[ "$real_path" == /usr/local/Cellar/* ]]; then
+    install_method="brew"
+    items+=("binary:brew")
+  elif git -C "$(dirname "$real_path")" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+    install_method="git"
+    items+=("binary:git (${real_path})")
+  else
+    install_method="standalone"
+    items+=("binary:${real_path}")
+  fi
+
+  # ── 2. Show what will be removed ──────────────────────────────
+  if [ ${#items[@]} -eq 0 ]; then
+    echo "Nothing to uninstall."
+    return
+  fi
+
+  echo "The following will be removed:"
+  echo ""
+  for item in "${items[@]}"; do
+    local kind="${item%%:*}"
+    local detail="${item#*:}"
+    case "$kind" in
+      alias)   echo "  • Shell alias: remove 'alias dd=devdash' from ${detail}" ;;
+      agent)
+        # For standalone files (cursor), the whole file is ours
+        if [ "$detail" = ".cursor/rules/devdash.mdc" ]; then
+          echo "  • Agent config: delete ${detail}"
+        else
+          echo "  • Agent config: remove devdash block from ${detail}"
+        fi
+        ;;
+      project) echo "  • Project file: delete ${detail}" ;;
+      config)  echo "  • Config dir: delete ${detail}/" ;;
+      binary)
+        case "$install_method" in
+          npm)        echo "  • Binary: npm uninstall -g @devdashproject/devdash-cli" ;;
+          brew)       echo "  • Binary: brew uninstall devdash" ;;
+          git)        echo "  • Binary: skipped (git clone at ${real_path} — remove manually)" ;;
+          standalone) echo "  • Binary: delete ${detail}" ;;
+        esac
+        ;;
+    esac
+  done
+  echo ""
+
+  if [ "$dry_run" = true ]; then
+    echo "(dry run — no changes made)"
+    return
+  fi
+
+  # ── 3. Confirm ────────────────────────────────────────────────
+  if [ "$force" != true ]; then
+    if [ -t 0 ]; then
+      printf "Proceed? [y/N] "
+      read -r answer </dev/tty 2>/dev/null || answer="n"
+    else
+      answer="n"
+    fi
+    case "$answer" in
+      [Yy]|[Yy]es) ;;
+      *)
+        echo "Aborted."
+        return
+        ;;
+    esac
+  fi
+
+  # ── 4. Remove items ──────────────────────────────────────────
+  echo ""
+  for item in "${items[@]}"; do
+    local kind="${item%%:*}"
+    local detail="${item#*:}"
+    case "$kind" in
+      alias)
+        # Remove the alias line and its comment from the shell rc
+        local tmp
+        tmp=$(mktemp)
+        grep -v -F 'alias dd=devdash' "$detail" | grep -v -F '# devdash: alias dd -> devdash' > "$tmp" || true
+        # Trim trailing blank lines we may have left
+        local last_line
+        last_line=$(awk 'NF{n=NR} END{print n+0}' "$tmp")
+        if [ "$last_line" -gt 0 ]; then
+          head -n "$last_line" "$tmp" > "$detail"
+        fi
+        rm -f "$tmp"
+        echo "  ✓ Removed alias from ${detail}"
+        ;;
+      agent)
+        if [ "$detail" = ".cursor/rules/devdash.mdc" ]; then
+          rm -f "$detail"
+          # Remove .cursor/rules/ if now empty
+          rmdir ".cursor/rules" 2>/dev/null || true
+          echo "  ✓ Deleted ${detail}"
+        else
+          # Strip the devdash block from append-mode files
+          local tmp
+          tmp=$(mktemp)
+          awk '
+            /<!-- devdash:agent-instructions -->/{skip=1; next}
+            /<!-- \/devdash:agent-instructions -->/{skip=0; next}
+            !skip{print}
+          ' "$detail" > "$tmp"
+          # Trim trailing blank lines
+          local last_line
+          last_line=$(awk 'NF{n=NR} END{print n+0}' "$tmp")
+          if [ "$last_line" -gt 0 ]; then
+            head -n "$last_line" "$tmp" > "$detail"
+          else
+            # File is now empty — delete it
+            rm -f "$detail"
+            # Clean up empty parent dirs we may have created
+            local pdir
+            pdir=$(dirname "$detail")
+            while [ "$pdir" != "." ]; do
+              rmdir "$pdir" 2>/dev/null || break
+              pdir=$(dirname "$pdir")
+            done
+            echo "  ✓ Deleted ${detail} (empty after removal)"
+            rm -f "$tmp"
+            continue
+          fi
+          rm -f "$tmp"
+          echo "  ✓ Removed devdash block from ${detail}"
+        fi
+        ;;
+      project)
+        rm -f "$detail"
+        echo "  ✓ Deleted ${detail}"
+        ;;
+      config)
+        rm -rf "$detail"
+        echo "  ✓ Deleted ${detail}/"
+        ;;
+      binary)
+        case "$install_method" in
+          npm)
+            npm uninstall -g @devdashproject/devdash-cli 2>/dev/null && \
+              echo "  ✓ npm uninstall complete" || \
+              echo "  ✗ npm uninstall failed — run manually: npm uninstall -g @devdashproject/devdash-cli"
+            ;;
+          brew)
+            brew uninstall devdash 2>/dev/null && \
+              echo "  ✓ brew uninstall complete" || \
+              echo "  ✗ brew uninstall failed — run manually: brew uninstall devdash"
+            ;;
+          git)
+            echo "  ⊘ Binary is in a git clone — remove it manually: rm -rf $(dirname "$real_path")"
+            ;;
+          standalone)
+            rm -f "$real_path"
+            echo "  ✓ Deleted ${real_path}"
+            ;;
+        esac
+        ;;
+    esac
+  done
+
+  echo ""
+  echo "Uninstall complete."
+  if [ -n "$shell_rc" ] && [[ " ${items[*]} " == *" alias:"* ]]; then
+    echo "Run 'source ${shell_rc}' or restart your terminal to clear the alias."
+  fi
+}
+
 dd_prime() {
   # Detect preferred command name
   local dd_cmd
@@ -2491,6 +2713,8 @@ Commands:
   admin reset-user <id>  Reset user state for onboarding re-testing (--confirm)
   doctor                 Check prerequisites and configuration
   alias-setup            Add 'dd' -> 'devdash' alias to your shell
+  uninstall              Remove devdash: alias, agent configs, token, binary
+                         (--dry-run to preview, --force to skip confirmation)
   self-update            Update devdash to the latest version
   version                Show version
   help                   Show this help
@@ -2616,6 +2840,7 @@ case "${1:-help}" in
   agent-setup) shift; dd_agent_setup "$@" ;;
   doctor)  dd_doctor ;;
   alias-setup) dd_alias_setup ;;
+  uninstall)   shift; dd_uninstall "$@" ;;
   self-update) dd_self_update ;;
   version|--version|-v) dd_version ;;
   help|--help|-h) dd_help ;;
