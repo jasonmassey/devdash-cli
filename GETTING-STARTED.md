@@ -15,26 +15,23 @@ They stay in sync automatically. Use whichever feels right for the moment.
 
 ## Step 1: Install the CLI
 
-You'll need Node.js 18+ and a few common tools (`curl`, `jq`, `git`).
-
 ```bash
 npm install -g github:jasonmassey/devdash-cli
+```
+
+Or without npm:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/install.sh | bash
 ```
 
 Verify it worked:
 
 ```bash
 devdash version
-# => devdash 0.2.0
 ```
 
-If anything looks off, run the built-in checkup:
-
-```bash
-devdash doctor
-```
-
-It'll tell you exactly what's missing.
+If anything looks off, run `devdash doctor` — it'll tell you exactly what's missing.
 
 ---
 
@@ -169,7 +166,7 @@ dd close <id>
 dd create --title="Fix login redirect" --type=bug --priority=1
 ```
 
-Priority runs from 0 (critical) to 4 (backlog). Type can be `task`, `bug`, or `feature`.
+Priority runs from 0 (critical) to 4 (backlog). Type can be `task`, `bug`, `feature`, or `enhancement`.
 
 ### Add a dependency
 
@@ -236,9 +233,13 @@ In the **Agents** tab, you can assign a task to an AI agent and watch it work. T
 Check on agent jobs from the CLI:
 
 ```bash
-dd jobs              # Recent runs
-dd jobs show <id>    # Details + failure analysis
-dd jobs failures     # What went wrong
+dd jobs                  # Recent runs
+dd jobs --bead=<id>      # Jobs for a specific task
+dd jobs show <id>        # Details + failure analysis
+dd jobs log <id>         # Full output log
+dd jobs log <id> --tail=50   # Last 50 lines
+dd jobs failures         # What went wrong
+dd diagnose <id>         # Investigate a task: status, jobs, failures
 ```
 
 ---
@@ -271,6 +272,9 @@ The CLI reads `.devdash` to know which project you're working in. No global stat
 | `dd close <id>` | Mark done |
 | `dd dep add <a> <b>` | A depends on B |
 | `dd blocked` | Show stuck tasks |
+| `dd stale` | In-progress tasks with no activity |
+| `dd diagnose <id>` | Investigate a task |
+| `dd jobs` | Recent agent jobs |
 | `dd stats` | Project health |
 | `dd prime` | AI agent context |
 | `dd agent-setup` | Configure AI agents |

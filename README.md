@@ -8,22 +8,14 @@ A lightweight bash CLI that wraps the [Dev-Dash](https://github.com/jasonmassey/
 
 ## Install
 
-### From GitHub (recommended)
-
 ```bash
 npm install -g github:jasonmassey/devdash-cli
 ```
 
-### curl
+Or without npm:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/install.sh | bash
-```
-
-### npm (coming soon)
-
-```bash
-npm install -g @devdashproject/devdash-cli
 ```
 
 ## Setup
@@ -77,23 +69,31 @@ devdash blocked                           # See what's waiting
 | `project create` | Create a new project (`--name`, `--repo`, `--description`) |
 | `project list` | List all your projects |
 | `project delete <id>` | Delete a project (`--force` to skip confirmation) |
-| `list [--status=X]` | List tasks (optional status filter) |
-| `ready` | Tasks with no blockers, sorted by priority |
+| `list [--status=X] [--since=X]` | List tasks (optional status and time filter) |
+| `ready [--since=X]` | Tasks with no blockers, sorted by priority |
 | `blocked` | Tasks waiting on dependencies |
+| `stale [--since=X]` | In-progress tasks with no recent activity |
 | `show <id>` | Task details with dependencies |
 | `create --title="..."` | Create task (`--type`, `--priority`, `--description`, `--parent`) |
 | `update <id> --key=val` | Update fields (`--status`, `--priority`, `--owner`, `--title`, `--description`, `--pre-instructions`) |
 | `close <id> [...] [--pr=URL] [--commit=SHA] [--summary="..."]` | Close one or more tasks (with optional completion metadata) |
-| `delete <id> [--force]` | Delete a task (with confirmation prompt) |
+| `delete <id> [--force] [--cascade]` | Delete a task (`--cascade` deletes children) |
 | `dep add <id> <dep-id>` | Add dependency (id depends on dep-id) |
-| `jobs [list\|show\|log\|failures]` | Manage agent jobs |
+| `report <id> --status=X` | Log agent progress (`code_complete\|committed\|pushed\|error`) |
+| `diagnose <id>` | Investigate bead: status, job history, failure details |
+| `jobs [--bead=<id>]` | List recent jobs (optionally filtered by bead) |
+| `jobs show <id>` | Job details + failure analysis |
+| `jobs log <id> [--tail=N]` | Job output log (last N lines if specified) |
+| `jobs failures [--bead=<id>]` | Recent failed jobs (optionally filtered by bead) |
 | `reconcile-tasks` | AI-powered backlog audit (`--dry-run`, `--auto-fix`, `--json`) |
 | `stats` | Project statistics |
 | `sync` | Trigger full reconcile with GitHub |
+| `import <num> \| --all` | Import GitHub issue(s) into the project |
 | `prime` | Output workflow context for AI agents (includes project health) |
 | `doctor` | Check prerequisites and configuration |
 | `agent-setup` | Configure AI agent instructions (`--agent=X`, `--all`, `--force`) |
 | `alias-setup` | Add `dd` shortcut alias |
+| `token create\|list\|revoke` | Manage API tokens |
 | `self-update` | Update to latest version |
 
 ### Bead IDs
