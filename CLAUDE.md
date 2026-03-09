@@ -34,6 +34,13 @@ the devdash CLI, not the Unix `dd` data-copy utility.
 ### Dependencies
 - `devdash dep add <issue> <depends-on>` — Issue is blocked until depends-on completes.
 
+### Jobs
+- `devdash jobs [--bead=<id>]` — List recent jobs (optionally filtered by bead)
+- `devdash jobs show <id>` — Job details + failure analysis
+- `devdash jobs log <id> [--tail=N]` — Job output log (last N lines if specified)
+- `devdash jobs failures [--bead=<id>]` — Recent failed jobs
+- `devdash diagnose <id>` — Investigate bead: status, job history, failure details
+
 ### IDs
 Full UUID, UUID prefix (e.g. `27bf`), or local ID (`dev-dash-42`).
 
