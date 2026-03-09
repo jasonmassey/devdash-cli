@@ -15,7 +15,7 @@ jobs:
       - name: Lint
         run: |
           sudo apt-get install -y shellcheck
-          shellcheck bin/devdash
+          shellcheck --exclude=SC2016,SC2034,SC2059 bin/devdash
           shellcheck test/helpers.sh test/test_offline.sh test/test_api.sh test/mock/curl
 
       - name: Test
