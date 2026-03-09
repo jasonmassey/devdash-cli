@@ -2126,6 +2126,20 @@ Report is fire-and-forget — if it fails, nothing breaks.
 
 ### Creating dependent work
 \`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
+
+### Bead relationships
+Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
+
+**Before starting work**, run \`${dd_cmd} show <id>\` and check:
+- **parentBeadId**: If set, \`${dd_cmd} show <parent-id>\` to understand the larger goal. Sibling beads (other children of that parent) may contain related context, prior decisions, or work you should build on.
+- **blockedBy / blocks**: Understand what this issue depends on and what depends on it — especially useful for ordering work.
+
+**When working in a worktree or isolated context**: You lack conversational history. Always explore the parent bead and its children (\`${dd_cmd} list\` filtered by eye, or \`${dd_cmd} show\` on related IDs) to recover context about the broader effort before diving into implementation.
+
+**When to create relationships**:
+- Use \`--parent=<id>\` when breaking a large issue into sub-tasks.
+- Use \`dep add\` when one issue must complete before another can start.
+- Prefer parent/child for "parts of a whole"; prefer dependencies for "X must happen before Y."
 PRIME
 }
 
@@ -2243,6 +2257,20 @@ Report is fire-and-forget — if it fails, nothing breaks. **Always report befor
 
 ### Creating dependent work
 \`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
+
+### Bead relationships
+Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
+
+**Before starting work**, run \`devdash show <id>\` and check:
+- **parentBeadId**: If set, \`devdash show <parent-id>\` to understand the larger goal. Sibling beads (other children of that parent) may contain related context, prior decisions, or work you should build on.
+- **blockedBy / blocks**: Understand what this issue depends on and what depends on it — especially useful for ordering work.
+
+**When working in a worktree or isolated context**: You lack conversational history. Always explore the parent bead and its children (\`devdash list\` filtered by eye, or \`devdash show\` on related IDs) to recover context about the broader effort before diving into implementation.
+
+**When to create relationships**:
+- Use \`--parent=<id>\` when breaking a large issue into sub-tasks.
+- Use \`dep add\` when one issue must complete before another can start.
+- Prefer parent/child for "parts of a whole"; prefer dependencies for "X must happen before Y."
 INSTRUCTIONS
 }
 
