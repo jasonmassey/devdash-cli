@@ -136,7 +136,7 @@ dd ready
 This shows all unblocked tasks sorted by priority. Pick one and dig in:
 
 ```bash
-dd show <id>
+Let's work on dd <id> 
 ```
 
 You can use the full UUID, a short prefix (like `27bf`), or a local ID (like `dev-dash-42`). The CLI figures it out.
