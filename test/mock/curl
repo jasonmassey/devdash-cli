@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Mock curl for devdash API tests
+# Intercepts curl calls, serves fixtures, logs requests
+
+set -euo pipefail
+
+# Parse curl arguments to extract what we need
+method="GET"
+outfile=""
+write_format=""
+body=""
+url=""
+headers=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -X) method="$2"; shift 2 ;;
+    -o) outfile="$2"; shift 2 ;;
+    -w) write_format="$2"; shift 2 ;;
+    -d) body="$2"; shift 2 ;;
+    -H) headers+=("$2"); shift 2 ;;
+    -s) shift ;;  # silent — ignore
+    http://*|https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+
+# Extract endpoint path: strip base URL, strip query params
+endpoint="${url#*//*/api}"  # e.g., /beads?projectId=...
+endpoint="${endpoint%%\?*}"  # strip query params
+
+# Normalize path to fixture filename:
+#   /beads          -> beads
+#   /beads/UUID     -> beads_ID
+#   /projects       -> projects
+#   /projects/UUID  -> projects_ID
+normalized="${endpoint#/}"  # strip leading /
+# Replace UUID segments with ID
+normalized=$(echo "$normalized" | sed -E 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ID/g')
+# Replace / with _
+normalized="${normalized//\//_}"
+
+fixture_name="${method}_${normalized}.json"
+fixture_path="${MOCK_CURL_FIXTURE_DIR}/${fixture_name}"
+
+# Check for companion .status file for non-200 responses
+status_file="${fixture_path%.json}.status"
+http_status="200"
+if [ -f "$status_file" ]; then
+  http_status=$(cat "$status_file")
+fi
+
+# Log the call (collapse body to single line for grep-ability)
+if [ -n "${MOCK_CURL_LOG:-}" ]; then
+  if [ -n "$body" ]; then
+    compact_body=$(printf '%s' "$body" | tr '\n' ' ' | sed 's/  */ /g')
+    echo "${method} ${endpoint} ${compact_body}" >> "$MOCK_CURL_LOG"
+  else
+    echo "${method} ${endpoint}" >> "$MOCK_CURL_LOG"
+  fi
+fi
+
+# Serve fixture
+if [ -f "$fixture_path" ]; then
+  if [ -n "$outfile" ]; then
+    cp "$fixture_path" "$outfile"
+  else
+    cat "$fixture_path"
+  fi
+else
+  # No fixture found — return empty JSON and 404
+  http_status="404"
+  if [ -n "$outfile" ]; then
+    echo '{"error":"Not found"}' > "$outfile"
+  else
+    echo '{"error":"Not found"}'
+  fi
+fi
+
+# Print http_code if -w '%{http_code}' was requested
+if [ "$write_format" = '%{http_code}' ]; then
+  printf '%s' "$http_status"
+fi

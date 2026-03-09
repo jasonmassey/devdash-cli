@@ -1,0 +1,17 @@
+{
+  "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "localBeadId": "dev-dash-1",
+  "subject": "Implement auth flow",
+  "description": "Build the login system",
+  "status": "in_progress",
+  "priority": 1,
+  "beadType": "task",
+  "owner": null,
+  "parentBeadId": null,
+  "blockedBy": [],
+  "blocks": [],
+  "preInstructions": null,
+  "completionResult": null,
+  "createdAt": "2026-03-01T00:00:00Z",
+  "updatedAt": "2026-03-08T00:00:00Z"
+}

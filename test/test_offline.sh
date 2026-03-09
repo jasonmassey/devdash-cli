@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Offline tests — no API calls, no mock curl needed
+
+echo "=== Offline tests ==="
+echo ""
+
+# ── Version ──────────────────────────────────────────
+echo "-- version --"
+expected_version=$(jq -r '.version' "$(dirname "${BASH_SOURCE[0]}")/../package.json")
+assert_contains "version matches package.json" "$expected_version" "$DEVDASH" version
+
+# ── Help ─────────────────────────────────────────────
+echo "-- help --"
+assert_contains "help lists login"          "login"          "$DEVDASH" help
+assert_contains "help lists init"           "init"           "$DEVDASH" help
+assert_contains "help lists list"           "list"           "$DEVDASH" help
+assert_contains "help lists ready"          "ready"          "$DEVDASH" help
+assert_contains "help lists show"           "show"           "$DEVDASH" help
+assert_contains "help lists create"         "create"         "$DEVDASH" help
+assert_contains "help lists update"         "update"         "$DEVDASH" help
+assert_contains "help lists close"          "close"          "$DEVDASH" help
+assert_contains "help lists delete"         "delete"         "$DEVDASH" help
+assert_contains "help lists dep"            "dep"            "$DEVDASH" help
+assert_contains "help lists jobs"           "jobs"           "$DEVDASH" help
+assert_contains "help lists stats"          "stats"          "$DEVDASH" help
+assert_contains "help lists sync"           "sync"           "$DEVDASH" help
+assert_contains "help lists prime"          "prime"          "$DEVDASH" help
+assert_contains "help lists agent-setup"    "agent-setup"    "$DEVDASH" help
+assert_contains "help lists doctor"         "doctor"         "$DEVDASH" help
+assert_contains "help lists alias-setup"    "alias-setup"    "$DEVDASH" help
+assert_contains "help lists self-update"    "self-update"    "$DEVDASH" help
+assert_contains "help lists project create" "project create" "$DEVDASH" help
+assert_contains "help lists project list"   "project list"   "$DEVDASH" help
+assert_contains "help lists project delete" "project delete" "$DEVDASH" help
+assert_contains "help lists reconcile"      "reconcile"      "$DEVDASH" help
+
+# ── Doctor ───────────────────────────────────────────
+echo "-- doctor --"
+assert_contains "doctor checks curl"     "curl"     "$DEVDASH" doctor
+assert_contains "doctor checks jq"       "jq"       "$DEVDASH" doctor
+assert_contains "doctor checks openssl"  "openssl"  "$DEVDASH" doctor
+assert_contains "doctor checks python3"  "python3"  "$DEVDASH" doctor
+assert_contains "doctor checks git"      "git"      "$DEVDASH" doctor
+assert_contains "doctor checks token"    "token"    "$DEVDASH" doctor
+
+# ── Agent Setup ─────────────────────────────────────
+echo "-- agent-setup --"
+_agent_dir="$(mktemp -d)"
+echo '{"project_id":"test"}' > "${_agent_dir}/.devdash"
+(
+  cd "$_agent_dir" || exit 1
+  "$DEVDASH" agent-setup --all --force >/dev/null 2>&1
+)
+for _af in CLAUDE.md AGENTS.md .windsurfrules .clinerules .cursor/rules/devdash.mdc .github/copilot-instructions.md; do
+  if [ -f "${_agent_dir}/${_af}" ]; then
+    pass "agent-setup creates ${_af}"
+  else
+    fail "agent-setup creates ${_af} (file not found)"
+  fi
+done
+if grep -qF "devdash:agent-instructions" "${_agent_dir}/CLAUDE.md" 2>/dev/null; then
+  pass "agent config contains marker"
+else
+  fail "agent config contains marker"
+fi
+_skip_output=$(cd "$_agent_dir" && "$DEVDASH" agent-setup --all 2>&1)
+if echo "$_skip_output" | grep -qF "already configured"; then
+  pass "agent-setup skips existing (idempotent)"
+else
+  fail "agent-setup skips existing (idempotent)"
+fi
+_force_output=$(cd "$_agent_dir" && "$DEVDASH" agent-setup --all --force 2>&1)
+if echo "$_force_output" | grep -qF "wrote:"; then
+  pass "agent-setup --force overwrites"
+else
+  fail "agent-setup --force overwrites"
+fi
+rm -rf "$_agent_dir"
+
+# ── Error handling ───────────────────────────────────
+echo "-- error handling --"
+assert_exit "unknown command exits 1"     1 "$DEVDASH" xyzzy
+assert_contains "unknown command message" "Unknown command" "$DEVDASH" xyzzy
+assert_exit "show without args exits 1"   1 "$DEVDASH" show
+assert_exit "create without title exits 1" 1 "$DEVDASH" create
+assert_exit "delete without args exits 1" 1 "$DEVDASH" delete
+
+# ── Unauthenticated ─────────────────────────────────
+echo "-- unauthenticated access --"
+_tmp_config_dir="$(mktemp -d)"
+_tmp_token_file="${_tmp_config_dir}/token"
+assert_contains "no-token shows login prompt" "devdash login" \
+  env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" "$DEVDASH" list
+assert_exit "no-token exits 3 (config error)" 3 \
+  env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" "$DEVDASH" list
+rm -rf "$_tmp_config_dir"

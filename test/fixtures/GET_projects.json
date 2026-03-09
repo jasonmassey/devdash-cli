@@ -1,0 +1,14 @@
+[
+  {
+    "id": "95ca3de0-7e4f-4f9e-9b17-36f5609cfa11",
+    "name": "devdash-cli",
+    "githubRepo": "jasonmassey/devdash-cli",
+    "description": "CLI for DevDash"
+  },
+  {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "name": "other-project",
+    "githubRepo": null,
+    "description": "Another project"
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "id": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+  "localBeadId": "dev-dash-6",
+  "subject": "New task",
+  "description": "",
+  "status": "pending",
+  "priority": 2,
+  "beadType": "task",
+  "owner": null,
+  "parentBeadId": null,
+  "blockedBy": [],
+  "blocks": [],
+  "preInstructions": null,
+  "completionResult": null,
+  "createdAt": "2026-03-08T00:00:00Z",
+  "updatedAt": "2026-03-08T00:00:00Z"
+}
