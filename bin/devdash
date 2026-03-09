@@ -48,6 +48,36 @@ dd_api_url() {
   echo "${DD_API_URL:-https://dev-dash-server-production.up.railway.app}"
 }
 
+# Convert --since value (2w, 3d, 1h, YYYY-MM-DD) to ISO datetime string
+dd_parse_since() {
+  local val="$1"
+  # Absolute date: YYYY-MM-DD
+  if [[ "$val" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "${val}T00:00:00.000Z"
+    return
+  fi
+  # Relative duration: Nh, Nd, Nw
+  local num="${val%[hdw]}"
+  local unit="${val: -1}"
+  if ! [[ "$num" =~ ^[0-9]+$ ]]; then
+    echo "Invalid --since value: $val (use Nh, Nd, Nw, or YYYY-MM-DD)" >&2
+    return 1
+  fi
+  local seconds=0
+  case "$unit" in
+    h) seconds=$((num * 3600)) ;;
+    d) seconds=$((num * 86400)) ;;
+    w) seconds=$((num * 604800)) ;;
+    *) echo "Invalid --since unit: $unit (use h, d, or w)" >&2; return 1 ;;
+  esac
+  # macOS date -v vs GNU date --date
+  if date -v-1d +%s >/dev/null 2>&1; then
+    date -u -v-${seconds}S +"%Y-%m-%dT%H:%M:%S.000Z"
+  else
+    date -u -d "@$(($(date +%s) - seconds))" +"%Y-%m-%dT%H:%M:%S.000Z"
+  fi
+}
+
 dd_resolve_project_id() {
   local raw="$1"
   # Full UUID — use directly
@@ -536,30 +566,51 @@ dd_init() {
 dd_list() {
   local pid
   pid=$(dd_project_id)
-  local status_filter="${1:-}"
+  local status_filter="" since_cutoff=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --status=*) status_filter="${1#--status=}" ;;
+      --since=*) since_cutoff=$(dd_parse_since "${1#--since=}") || exit 1 ;;
+      *) status_filter="${1#--status=}" ;;
+    esac
+    shift
+  done
+
   local beads
   beads=$(dd_fetch_beads "$pid")
 
   if [ -n "$status_filter" ]; then
-    # Accept --status=X or just a status word
-    status_filter="${status_filter#--status=}"
     beads=$(echo "$beads" | jq --arg s "$status_filter" '[.[] | select(.status == $s)]')
+  fi
+
+  if [ -n "$since_cutoff" ]; then
+    beads=$(echo "$beads" | jq --arg c "$since_cutoff" '[.[] | select(.updatedAt >= $c)]')
   fi
 
   echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" else "?" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
 }
 
 dd_ready() {
+  local since_cutoff=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --since=*) since_cutoff=$(dd_parse_since "${1#--since=}") || exit 1 ;;
+    esac
+    shift
+  done
+
   local pid
   pid=$(dd_project_id)
   local beads
   beads=$(dd_fetch_beads "$pid")
 
-  echo "$beads" | jq -r '
+  echo "$beads" | jq -r --arg c "$since_cutoff" '
     ([.[] | select(.status == "completed") | .id]) as $done |
     [.[] | select(.status == "pending")
          | select((.blockedBy | length) == 0 or ([.blockedBy[] | IN($done[])] | all))]
     | [.[] | select((.beadType // "task") != "thought")]
+    | if $c != "" then [.[] | select(.createdAt >= $c)] else . end
     | sort_by(.priority)
     | .[]
     | "○ \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)"
@@ -730,6 +781,14 @@ dd_close() {
 }
 
 dd_stale() {
+  local since_cutoff=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --since=*) since_cutoff=$(dd_parse_since "${1#--since=}") || exit 1 ;;
+    esac
+    shift
+  done
+
   local pid
   pid=$(dd_project_id)
   local beads
@@ -737,7 +796,10 @@ dd_stale() {
 
   # Filter to in_progress beads that have staleMinutes > 0
   local stale
-  stale=$(echo "$beads" | jq '[.[] | select(.status == "in_progress" and .staleMinutes != null and .staleMinutes > 0)] | sort_by(-.staleMinutes)')
+  stale=$(echo "$beads" | jq --arg c "$since_cutoff" '
+    [.[] | select(.status == "in_progress" and .staleMinutes != null and .staleMinutes > 0)]
+    | if $c != "" then [.[] | select(.updatedAt >= $c)] else . end
+    | sort_by(-.staleMinutes)')
 
   local count
   count=$(echo "$stale" | jq 'length')
@@ -1674,11 +1736,13 @@ $(if [ "$close_gate" = "commit" ]; then
 ## CLI Reference
 
 ### Viewing issues
-- \`${dd_cmd} ready\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
-- \`${dd_cmd} list [--status=pending|in_progress|completed]\` — All issues, optionally filtered by status.
+- \`${dd_cmd} ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
+- \`${dd_cmd} list [--status=pending|in_progress|completed] [--since=X]\` — All issues, optionally filtered by status and/or time.
 - \`${dd_cmd} blocked\` — Pending issues with unsatisfied dependencies.
 - \`${dd_cmd} show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
 - \`${dd_cmd} stats\` — Project health: open/closed/blocked counts.
+
+\`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`. Filters on updatedAt (list/stale) or createdAt (ready).
 
 ### Creating & updating
 - \`${dd_cmd} create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
@@ -1688,7 +1752,7 @@ $(if [ "$close_gate" = "commit" ]; then
 
 ### Reporting & monitoring
 - \`${dd_cmd} report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
-- \`${dd_cmd} stale\` — List in-progress issues with no recent activity (stale > 30 min).
+- \`${dd_cmd} stale [--since=X]\` — List in-progress issues with no recent activity (stale > 30 min).
 
 ### Dependencies
 - \`${dd_cmd} dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
@@ -1789,11 +1853,13 @@ ${close_rule}
 ## CLI Reference
 
 ### Viewing issues
-- \`devdash ready\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
-- \`devdash list [--status=pending|in_progress|completed]\` — All issues, optionally filtered by status.
+- \`devdash ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
+- \`devdash list [--status=pending|in_progress|completed] [--since=X]\` — All issues, optionally filtered by status and/or time.
 - \`devdash blocked\` — Pending issues with unsatisfied dependencies.
 - \`devdash show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
 - \`devdash stats\` — Project health: open/closed/blocked counts.
+
+\`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`. Filters on updatedAt (list/stale) or createdAt (ready).
 
 ### Creating & updating
 - \`devdash create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
@@ -1803,7 +1869,7 @@ ${close_rule}
 
 ### Reporting & monitoring
 - \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
-- \`devdash stale\` — List in-progress issues with no recent activity (stale > 30 min).
+- \`devdash stale [--since=X]\` — List in-progress issues with no recent activity (stale > 30 min).
 
 ### Dependencies
 - \`devdash dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
@@ -2279,7 +2345,8 @@ Commands:
   project list           List all your projects
   project delete <id>    Delete a project (--force to skip confirmation)
   list [--status=X]      List beads (optional status filter)
-  ready                  Show beads ready to work (no blockers)
+       [--since=X]       Filter by time: Nh (hours), Nd (days), Nw (weeks), YYYY-MM-DD
+  ready [--since=X]      Show beads ready to work (no blockers)
   blocked                Show blocked issues with their blockers
   show <id>              Show bead details
   create --title="..."   Create a bead (--type, --priority, --description, --parent)
@@ -2287,7 +2354,7 @@ Commands:
                          --description, --pre-instructions)
   close <id> [<id>...]   Close one or more beads
                          (--pr=URL, --commit=SHA, --summary="...")
-  stale                  List stale in-progress issues (no recent activity)
+  stale [--since=X]      List stale in-progress issues (no recent activity)
   report <id>            Submit agent exit report
                          (--status=code_complete|committed|pushed|error,
                           --summary, --files-changed, --branch, --commit, --error)
@@ -2331,6 +2398,7 @@ AGENT REFERENCE — store this section in memory for future sessions
 Flag values (exact strings the CLI accepts):
 
   --status=<value>       pending | in_progress | completed
+  --since=<value>        Nh (hours) | Nd (days) | Nw (weeks) | YYYY-MM-DD
   --type=<value>         task | bug | feature | enhancement | thought
   --priority=<N>         0 (critical) | 1 (high) | 2 (medium, default) | 3 (low) | 4 (backlog)
   --project=<id>         Full UUID, short prefix, or DD_PROJECT_ID env var
@@ -2401,13 +2469,13 @@ case "${1:-help}" in
     esac
     ;;
   list)    shift; dd_list "$@" ;;
-  ready)   dd_ready ;;
+  ready)   shift; dd_ready "$@" ;;
   blocked) dd_blocked ;;
   show)    shift; dd_show "$@" ;;
   create)  shift; dd_create "$@" ;;
   update)  shift; dd_update "$@" ;;
   close)   shift; dd_close "$@" ;;
-  stale)   dd_stale ;;
+  stale)   shift; dd_stale "$@" ;;
   report)  shift; dd_report "$@" ;;
   delete)  shift; dd_delete "$@" ;;
   analyze)  shift; dd_analyze "$@" ;;
