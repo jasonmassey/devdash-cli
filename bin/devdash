@@ -595,7 +595,7 @@ dd_show() {
     completionResult: .completionResult,
     createdAt: .createdAt,
     updatedAt: .updatedAt
-  }'
+  } + (if .staleSince != null then {staleSince: .staleSince, staleMinutes: .staleMinutes} else {} end)'
 }
 
 dd_create() {
@@ -1686,6 +1686,10 @@ $(if [ "$close_gate" = "commit" ]; then
 - \`${dd_cmd} close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`${dd_cmd} delete <id> [--force] [--cascade]\`
 
+### Reporting & monitoring
+- \`${dd_cmd} report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
+- \`${dd_cmd} stale\` — List in-progress issues with no recent activity (stale > 30 min).
+
 ### Dependencies
 - \`${dd_cmd} dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 
@@ -1726,6 +1730,12 @@ Issues:
 
 Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
 If the PR addresses multiple issues, list each on its own line.
+
+### Reporting progress (for agents)
+After completing code changes, report status to prevent the issue from appearing stale:
+\`${dd_cmd} report <id> --status=code_complete --summary="brief description"\`
+Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
+Report is fire-and-forget — if it fails, nothing breaks.
 
 ### Creating dependent work
 \`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
@@ -1791,6 +1801,10 @@ ${close_rule}
 - \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`devdash delete <id> [--force] [--cascade]\`
 
+### Reporting & monitoring
+- \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
+- \`devdash stale\` — List in-progress issues with no recent activity (stale > 30 min).
+
 ### Dependencies
 - \`devdash dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 
@@ -1824,6 +1838,12 @@ Issues:
 
 Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
 If the PR addresses multiple issues, list each on its own line.
+
+### Reporting progress (IMPORTANT for agents)
+After completing code changes, report status to prevent the issue from appearing stale:
+\`devdash report <id> --status=code_complete --summary="brief description"\`
+Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
+Report is fire-and-forget — if it fails, nothing breaks. **Always report before exiting.**
 
 ### Creating dependent work
 \`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
