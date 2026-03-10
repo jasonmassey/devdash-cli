@@ -1685,12 +1685,12 @@ dd_self_update() {
     echo "Detected Homebrew install. Updating..."
     brew upgrade devdash
   elif git -C "$(dirname "$real_path")" rev-parse --is-inside-work-tree &>/dev/null; then
-    # Git clone / local dev
+    # Git clone / local dev — can't auto-update, but still refresh agent configs below
     local repo_root
     repo_root=$(git -C "$(dirname "$real_path")" rev-parse --show-toplevel 2>/dev/null)
     echo "Detected git clone at ${repo_root}."
-    echo "Run 'git -C \"${repo_root}\" pull' to update."
-    return 0
+    echo "Run 'git -C \"${repo_root}\" pull' to update the binary."
+    old_version=""  # skip version comparison
   else
     # Direct download — re-download from GitHub
     local install_dir
@@ -1702,14 +1702,53 @@ dd_self_update() {
     chmod +x "${real_path}"
   fi
 
-  # Compare versions
-  local new_version
-  new_version=$("$real_path" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
-  if [ "$new_version" = "$old_version" ]; then
-    echo "Already up to date (v${old_version})."
-  else
-    echo "Updated v${old_version} → v${new_version}."
+  # Compare versions (skip for git clone — binary wasn't updated)
+  if [ -n "$old_version" ]; then
+    local new_version
+    new_version=$("$real_path" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    if [ "$new_version" = "$old_version" ]; then
+      echo "Already up to date (v${old_version})."
+    else
+      echo "Updated v${old_version} → v${new_version}."
+    fi
   fi
+
+  # Offer to refresh agent configs if any are installed
+  if ! git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+    return 0
+  fi
+
+  local configured=()
+  local agent_files="CLAUDE.md:claude AGENTS.md:codex .cursor/rules/devdash.mdc:cursor .github/copilot-instructions.md:copilot .windsurfrules:windsurf .clinerules:cline"
+  for entry in $agent_files; do
+    local f="${entry%%:*}" a="${entry#*:}"
+    if [ -f "$f" ] && grep -qF "$DD_AGENT_MARKER" "$f" 2>/dev/null; then
+      configured+=("$a")
+    fi
+  done
+
+  if [ ${#configured[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  echo ""
+  echo "Agent configs found: ${configured[*]}"
+  if [ -t 0 ]; then
+    printf "Refresh agent instructions? [Y/n] "
+    read -r answer </dev/tty 2>/dev/null || answer="n"
+    answer="${answer:-y}"
+  else
+    answer="y"
+  fi
+
+  case "$answer" in
+    [Yy]|[Yy]es|"")
+      dd_agent_setup --agent="$(IFS=','; echo "${configured[*]}")" --force
+      ;;
+    *)
+      echo "Skipped. Run 'devdash agent-setup --force' anytime."
+      ;;
+  esac
 }
 
 dd_uninstall() {
