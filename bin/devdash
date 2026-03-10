@@ -2127,6 +2127,15 @@ Report is fire-and-forget — if it fails, nothing breaks.
 ### Creating dependent work
 \`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
 
+### When to create issues
+DevDash issues are cheap — err on the side of creating them. The goal is a clear audit trail where every commit maps to an issue.
+
+- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** before starting implementation. Use \`--parent=<id>\` to group them under the top-level issue.
+- **Scope creep**: If you discover extra work mid-task (a bug, a refactor, a missing test), create a new issue rather than expanding the current one.
+- **One commit = one issue**: If you're about to make a commit that doesn't map to an existing issue, stop and create one first.
+- **Exploratory work**: Even spikes or investigations deserve an issue — it tracks time spent and captures findings in the close summary.
+- **Don't batch**: Avoid creating a single "do everything" issue. Granular issues make progress visible and let work be parallelized across agents or worktrees.
+
 ### Bead relationships
 Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
 
@@ -2258,6 +2267,15 @@ Report is fire-and-forget — if it fails, nothing breaks. **Always report befor
 ### Creating dependent work
 \`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
 
+### When to create issues
+DevDash issues are cheap — err on the side of creating them. The goal is a clear audit trail where every commit maps to an issue.
+
+- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** before starting implementation. Use \`--parent=<id>\` to group them under the top-level issue.
+- **Scope creep**: If you discover extra work mid-task (a bug, a refactor, a missing test), create a new issue rather than expanding the current one.
+- **One commit = one issue**: If you're about to make a commit that doesn't map to an existing issue, stop and create one first.
+- **Exploratory work**: Even spikes or investigations deserve an issue — it tracks time spent and captures findings in the close summary.
+- **Don't batch**: Avoid creating a single "do everything" issue. Granular issues make progress visible and let work be parallelized across agents or worktrees.
+
 ### Bead relationships
 Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
 
@@ -2284,7 +2302,7 @@ dd_agent_custom_instructions() {
 
 - You may use your built-in task tools (TaskCreate, TodoWrite, etc.) for your own tracking, but you **must also** create and update devdash issues. Devdash is the system of record.
 - When the user asks you to implement a plan, feature, or fix: your **very first action** is `devdash create`. Do not read files, do not write code — create the issue first.
-- For multi-step plans, create one devdash issue per logical unit of work before starting any implementation.
+- For multi-step plans, create one devdash issue per step before starting any implementation. Group them under a parent issue. Then work through them sequentially: mark in-progress, implement, commit, close, move to next.
 - After creating issues, follow the normal workflow: mark in-progress, do the work, commit, then close.
 CUSTOM
       ;;
