@@ -2,7 +2,7 @@
 
 Dev-Dash CLI — AI-powered task tracking for coding agents.
 
-A lightweight bash CLI that wraps the [Dev-Dash](https://github.com/jasonmassey/dev-dash) REST API for managing tasks, dependencies, and agent jobs from the terminal.
+A lightweight bash CLI that wraps the [Dev-Dash](https://dev-dash-blue.vercel.app/) REST API for managing tasks, dependencies, and agent jobs from the terminal.
 
 **New here?** Check out the **[Getting Started guide](GETTING-STARTED.md)** for a friendly walkthrough.
 
