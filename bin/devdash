@@ -2135,6 +2135,7 @@ DevDash issues are cheap — err on the side of creating them. The goal is a cle
 - **One commit = one issue**: If you're about to make a commit that doesn't map to an existing issue, stop and create one first.
 - **Exploratory work**: Even spikes or investigations deserve an issue — it tracks time spent and captures findings in the close summary.
 - **Don't batch**: Avoid creating a single "do everything" issue. Granular issues make progress visible and let work be parallelized across agents or worktrees.
+- **PRs can bundle**: Multiple child issues and commits can roll into a single PR. Granularity is for the issue+commit trail, not the PR.
 
 ### Bead relationships
 Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
