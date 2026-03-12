@@ -2092,6 +2092,7 @@ $(if [ "$close_gate" = "commit" ]; then
   fi)
 - **No orphaned work**: At session end, every commit must map to a closed issue.
 - **Path**: \`$(command -v devdash 2>/dev/null || echo "devdash")\`
+- **Preserve stderr**: Avoid \`2>/dev/null\` on ${dd_cmd} commands — stderr contains error details you'll need for debugging failures.
 - **Prohibited**: Do NOT use \`bd\`, TodoWrite, TaskCreate, or markdown files for task tracking
 
 ## CLI Reference
@@ -2235,6 +2236,7 @@ the devdash CLI, not the Unix \`dd\` data-copy utility.
 - **Pre-commit checkpoint**: Before each \`git commit\`, verify you have an issue. If not, create one.
 ${close_rule}
 - **No orphaned work**: At session end, every commit must map to a closed issue.
+- **Preserve stderr**: Avoid \`2>/dev/null\` on devdash commands — stderr contains error details you'll need for debugging failures.
 
 ## CLI Reference
 
