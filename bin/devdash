@@ -37,15 +37,18 @@ dd_frontend_url() {
 }
 
 dd_api_url() {
+  local url=""
   if [ -f "$DD_PROJECT_FILE" ]; then
-    local url
     url=$(jq -r '.api_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
-    if [ -n "$url" ]; then
-      echo "$url"
-      return
-    fi
   fi
-  echo "${DD_API_URL:-https://dev-dash-server-production.up.railway.app}"
+  url="${url:-${DD_API_URL:-https://dev-dash-server-production.up.railway.app}}"
+
+  # Enforce HTTPS (allow http only for localhost/127.0.0.1 dev)
+  if [[ "$url" == http://* ]] && [[ "$url" != http://localhost* ]] && [[ "$url" != http://127.0.0.1* ]]; then
+    echo "Warning: API URL uses insecure HTTP: $url" >&2
+    echo "Set a https:// URL or use http://localhost for local dev." >&2
+  fi
+  echo "$url"
 }
 
 # Convert --since value (2w, 3d, 1h, YYYY-MM-DD) to ISO datetime string
@@ -1692,13 +1695,28 @@ dd_self_update() {
     echo "Run 'git -C \"${repo_root}\" pull' to update the binary."
     old_version=""  # skip version comparison
   else
-    # Direct download — re-download from GitHub
+    # Direct download — re-download from GitHub with checksum verification
     local install_dir
     install_dir=$(dirname "$real_path")
     echo "Detected standalone install at ${real_path}. Downloading latest..."
+    local tmp_file="${real_path}.tmp"
     curl -fsSL "https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/bin/devdash" \
-      -o "${real_path}" \
-      || { echo "Download failed." >&2; exit "$DD_EXIT_CONFIG"; }
+      -o "${tmp_file}" \
+      || { echo "Download failed." >&2; rm -f "${tmp_file}"; exit "$DD_EXIT_CONFIG"; }
+    # Verify checksum if available
+    local expected_checksum
+    expected_checksum=$(curl -fsSL "https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/bin/devdash.sha256" 2>/dev/null | awk '{print $1}')
+    if [ -n "$expected_checksum" ]; then
+      local actual_checksum
+      actual_checksum=$(shasum -a 256 "${tmp_file}" | awk '{print $1}')
+      if [ "$expected_checksum" != "$actual_checksum" ]; then
+        echo "Checksum verification failed! Expected ${expected_checksum}, got ${actual_checksum}" >&2
+        rm -f "${tmp_file}"
+        exit "$DD_EXIT_CONFIG"
+      fi
+      echo "Checksum verified."
+    fi
+    mv "${tmp_file}" "${real_path}"
     chmod +x "${real_path}"
   fi
 
@@ -2679,6 +2697,13 @@ dd_admin_reset_user() {
 
   local admin_secret="${ADMIN_SECRET:-}"
   if [ -z "$admin_secret" ] && [ -f "${DD_CONFIG_DIR}/admin-secret" ]; then
+    # Check file permissions — warn if too open
+    local perms
+    perms=$(stat -f '%Lp' "${DD_CONFIG_DIR}/admin-secret" 2>/dev/null || stat -c '%a' "${DD_CONFIG_DIR}/admin-secret" 2>/dev/null)
+    if [ -n "$perms" ] && [ "$perms" != "600" ]; then
+      echo "Warning: ${DD_CONFIG_DIR}/admin-secret has permissions $perms (should be 600). Fixing..." >&2
+      chmod 600 "${DD_CONFIG_DIR}/admin-secret"
+    fi
     admin_secret=$(cat "${DD_CONFIG_DIR}/admin-secret")
   fi
   if [ -z "$admin_secret" ]; then
