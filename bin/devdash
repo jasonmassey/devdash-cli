@@ -153,6 +153,15 @@ dd_project_id() {
 }
 
 dd_get_token() {
+  # Ensure config directory has secure permissions
+  if [ -d "$DD_CONFIG_DIR" ]; then
+    local dir_perms
+    dir_perms=$(stat -f '%Lp' "$DD_CONFIG_DIR" 2>/dev/null || stat -c '%a' "$DD_CONFIG_DIR" 2>/dev/null)
+    if [ -n "$dir_perms" ] && [ "$dir_perms" != "700" ]; then
+      echo "Warning: ${DD_CONFIG_DIR} has permissions $dir_perms (should be 700). Fixing..." >&2
+      chmod 700 "$DD_CONFIG_DIR"
+    fi
+  fi
   if [ -f "$DD_TOKEN_FILE" ]; then
     cat "$DD_TOKEN_FILE"
   else
