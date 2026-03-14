@@ -380,7 +380,7 @@ s.serve_forever()
   trap - INT
 
   if [ -s "$tmpfile" ]; then
-    mkdir -p "$DD_CONFIG_DIR"
+    mkdir -p -m 700 "$DD_CONFIG_DIR"
     cp "$tmpfile" "$DD_TOKEN_FILE"
     chmod 600 "$DD_TOKEN_FILE"
     rm -f "$tmpfile"
@@ -559,7 +559,7 @@ dd_init() {
   fi
   local api_url
   api_url=$(dd_api_url)
-  echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${pid}\"}" > "$DD_PROJECT_FILE"
+  jq -n --arg url "$api_url" --arg pid "$pid" '{api_url: $url, project_id: $pid}' > "$DD_PROJECT_FILE"
   echo "Initialized: ${pname} -> .devdash"
 
   dd_maybe_offer_alias
@@ -743,6 +743,12 @@ dd_create() {
     exit "$DD_EXIT_USER"
   fi
 
+  # Validate priority is an integer 0-4
+  if ! [[ "$priority" =~ ^[0-4]$ ]]; then
+    echo "Error: priority must be 0-4 (got: $priority)" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
   # Resolve parent short ID to full UUID
   if [ -n "$parent" ]; then
     parent=$(dd_resolve_id "$parent" "$pid") || exit 1
@@ -781,7 +787,14 @@ dd_update() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --status=*) body=$(echo "$body" | jq --arg v "${1#--status=}" '. + {status: $v}') ;;
-      --priority=*) body=$(echo "$body" | jq --argjson v "${1#--priority=}" '. + {priority: $v}') ;;
+      --priority=*)
+        local pval="${1#--priority=}"
+        if ! [[ "$pval" =~ ^[0-4]$ ]]; then
+          echo "Error: priority must be 0-4 (got: $pval)" >&2
+          exit "$DD_EXIT_USER"
+        fi
+        body=$(echo "$body" | jq --argjson v "$pval" '. + {priority: $v}')
+        ;;
       --owner=*) body=$(echo "$body" | jq --arg v "${1#--owner=}" '. + {owner: $v}') ;;
       --title=*) body=$(echo "$body" | jq --arg v "${1#--title=}" '. + {subject: $v}') ;;
       --description=*) body=$(echo "$body" | jq --arg v "${1#--description=}" '. + {description: $v}') ;;
@@ -844,7 +857,7 @@ dd_close() {
         --argjson cr "$completion_result" \
         '{projectId: $pid, status: "completed", completionResult: $cr}')
     else
-      body="{\"projectId\": \"${pid}\", \"status\": \"completed\"}"
+      body=$(jq -n --arg pid "$pid" '{projectId: $pid, status: "completed"}')
     fi
 
     dd_api PATCH "/beads/${uuid}" -d "$body" > /dev/null
@@ -1013,8 +1026,11 @@ dd_dep_add() {
   blocks=$(echo "$dep_current" | jq -c --arg id "$issue_uuid" '.blocks + [$id] | unique')
 
   # Update both
-  dd_api PATCH "/beads/${issue_uuid}" -d "{\"projectId\": \"${pid}\", \"blockedBy\": ${blocked_by}}" > /dev/null
-  dd_api PATCH "/beads/${dep_uuid}" -d "{\"projectId\": \"${pid}\", \"blocks\": ${blocks}}" > /dev/null
+  local issue_body blocks_body
+  issue_body=$(jq -n --arg pid "$pid" --argjson bb "$blocked_by" '{projectId: $pid, blockedBy: $bb}')
+  blocks_body=$(jq -n --arg pid "$pid" --argjson bl "$blocks" '{projectId: $pid, blocks: $bl}')
+  dd_api PATCH "/beads/${issue_uuid}" -d "$issue_body" > /dev/null
+  dd_api PATCH "/beads/${dep_uuid}" -d "$blocks_body" > /dev/null
   echo "Added dependency: ${issue} depends on ${depends_on}"
 }
 
