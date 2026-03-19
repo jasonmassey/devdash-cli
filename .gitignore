@@ -2,3 +2,7 @@
 .env
 node_modules/
 CLAUDE.md
+AGENTS.md
+.cursor/
+ONBOARDING.md
+docs/
