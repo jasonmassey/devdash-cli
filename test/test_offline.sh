@@ -77,6 +77,60 @@ else
 fi
 rm -rf "$_agent_dir"
 
+# ── Priority validation ─────────────────────────────
+echo "-- priority validation --"
+_pv_dir="$(mktemp -d)"
+echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_pv_dir}/.devdash"
+_pv_config="$(mktemp -d)"
+echo "mock-token" > "${_pv_config}/token"
+_pv_env="env DD_CONFIG_DIR=$_pv_config DD_TOKEN_FILE=${_pv_config}/token"
+
+assert_exit "create --priority=5 exits 1" 1 \
+  env DD_CONFIG_DIR="$_pv_config" DD_TOKEN_FILE="${_pv_config}/token" \
+  bash -c "cd '$_pv_dir' && '$DEVDASH' create --title='test' --priority=5"
+assert_contains "create --priority=5 shows error" "priority must be 0-4" \
+  env DD_CONFIG_DIR="$_pv_config" DD_TOKEN_FILE="${_pv_config}/token" \
+  bash -c "cd '$_pv_dir' && '$DEVDASH' create --title='test' --priority=5"
+
+assert_exit "create --priority=abc exits 1" 1 \
+  env DD_CONFIG_DIR="$_pv_config" DD_TOKEN_FILE="${_pv_config}/token" \
+  bash -c "cd '$_pv_dir' && '$DEVDASH' create --title='test' --priority=abc"
+assert_contains "create --priority=abc shows error" "priority must be 0-4" \
+  env DD_CONFIG_DIR="$_pv_config" DD_TOKEN_FILE="${_pv_config}/token" \
+  bash -c "cd '$_pv_dir' && '$DEVDASH' create --title='test' --priority=abc"
+
+assert_exit "create --priority=-1 exits 1" 1 \
+  env DD_CONFIG_DIR="$_pv_config" DD_TOKEN_FILE="${_pv_config}/token" \
+  bash -c "cd '$_pv_dir' && '$DEVDASH' create --title='test' --priority=-1"
+
+rm -rf "$_pv_dir" "$_pv_config"
+
+# ── HTTPS enforcement ──────────────────────────────
+echo "-- HTTPS enforcement --"
+_https_dir="$(mktemp -d)"
+_https_config="$(mktemp -d)"
+echo "mock-token" > "${_https_config}/token"
+
+# HTTP non-localhost should warn
+echo '{"project_id":"test","api_url":"http://example.com"}' > "${_https_dir}/.devdash"
+assert_contains "HTTP non-localhost warns" "insecure HTTP" \
+  env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
+
+# HTTP localhost should NOT warn
+echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_https_dir}/.devdash"
+assert_not_contains "HTTP localhost no warning" "insecure HTTP" \
+  env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
+
+# HTTPS should NOT warn
+echo '{"project_id":"test","api_url":"https://example.com"}' > "${_https_dir}/.devdash"
+assert_not_contains "HTTPS no warning" "insecure HTTP" \
+  env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
+
+rm -rf "$_https_dir" "$_https_config"
+
 # ── Error handling ───────────────────────────────────
 echo "-- error handling --"
 assert_exit "unknown command exits 1"     1 "$DEVDASH" xyzzy

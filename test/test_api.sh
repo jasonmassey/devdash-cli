@@ -115,6 +115,17 @@ assert_contains "update --priority works" "Updated" echo "$output"
 assert_api_body "update body has priority" "PATCH" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" '"priority"'
 teardown_api_test
 
+# update with invalid priority
+setup_api_test
+assert_exit "update --priority=5 exits 1" 1 run_dd update aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --priority=5
+output=$(run_dd update aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --priority=5 2>&1) || true
+assert_contains "update --priority=5 shows error" "priority must be 0-4" echo "$output"
+teardown_api_test
+
+setup_api_test
+assert_exit "update --priority=abc exits 1" 1 run_dd update aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --priority=abc
+teardown_api_test
+
 # update with title
 setup_api_test
 output=$(run_dd update aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --title="New title" 2>&1) || true
@@ -201,6 +212,23 @@ setup_api_test
 output=$(run_dd delete --force aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
 assert_contains "delete --force shows Deleted" "Deleted" echo "$output"
 assert_api_called "delete calls DELETE /beads" "DELETE" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+# Verify delete URL does NOT include projectId (regression: caused 404)
+if grep -F "DELETE" "${MOCK_CURL_LOG}.urls" | grep -qF "projectId"; then
+  fail "delete URL excludes projectId (found projectId in URL)"
+else
+  pass "delete URL excludes projectId"
+fi
+teardown_api_test
+
+# delete --cascade includes cascade in URL
+setup_api_test
+output=$(run_dd delete --force --cascade aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "delete --cascade shows Deleted" "Deleted" echo "$output"
+if grep -F "DELETE" "${MOCK_CURL_LOG}.urls" | grep -qF "cascade=true"; then
+  pass "delete --cascade URL includes cascade param"
+else
+  fail "delete --cascade URL includes cascade param"
+fi
 teardown_api_test
 
 # ── dep add ──────────────────────────────────────────

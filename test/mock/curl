@@ -58,6 +58,8 @@ if [ -n "${MOCK_CURL_LOG:-}" ]; then
   else
     echo "${method} ${endpoint}" >> "$MOCK_CURL_LOG"
   fi
+  # Log raw URL for query-param assertions
+  echo "${method} ${url}" >> "${MOCK_CURL_LOG}.urls"
 fi
 
 # Serve fixture
