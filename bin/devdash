@@ -2188,6 +2188,8 @@ $(if [ "$close_gate" = "commit" ]; then
     echo "\`git add\` → \`git commit\` → \`git push\` → \`${dd_cmd} close <id>\`"
   fi)
 Git operations MUST succeed before closing. Never run git and ${dd_cmd} close in parallel.
+On successful completions, include metadata when closing: \`${dd_cmd} close <id> --summary="what changed" --commit=\$(git rev-parse HEAD)\`.
+If a PR exists, include \`--pr=URL\` too.
 
 ### Creating pull requests
 When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
@@ -2206,7 +2208,9 @@ If the PR addresses multiple issues, list each on its own line.
 After completing code changes, report status to prevent the issue from appearing stale:
 \`${dd_cmd} report <id> --status=code_complete --summary="brief description"\`
 Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
-Report is fire-and-forget — if it fails, nothing breaks.
+After commit, report the SHA: \`${dd_cmd} report <id> --status=committed --commit=\$(git rev-parse HEAD) --summary="brief description"\`.
+After push, report the branch and, when practical, file count: \`${dd_cmd} report <id> --status=pushed --commit=\$(git rev-parse HEAD) --branch=\$(git branch --show-current) --files-changed=N\`.
+Report is fire-and-forget — if it fails, nothing breaks. **Always report before exiting.**
 
 ### Creating dependent work
 \`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
@@ -2330,6 +2334,8 @@ Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 ### Completing work
 ${completing_work}
 Git operations MUST succeed before closing. Never run git and devdash close in parallel.
+On successful completions, include metadata when closing: \`devdash close <id> --summary="what changed" --commit=\$(git rev-parse HEAD)\`.
+If a PR exists, include \`--pr=URL\` too.
 
 ### Creating pull requests
 When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
@@ -2348,6 +2354,8 @@ If the PR addresses multiple issues, list each on its own line.
 After completing code changes, report status to prevent the issue from appearing stale:
 \`devdash report <id> --status=code_complete --summary="brief description"\`
 Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
+After commit, report the SHA: \`devdash report <id> --status=committed --commit=\$(git rev-parse HEAD) --summary="brief description"\`.
+After push, report the branch and, when practical, file count: \`devdash report <id> --status=pushed --commit=\$(git rev-parse HEAD) --branch=\$(git branch --show-current) --files-changed=N\`.
 Report is fire-and-forget — if it fails, nothing breaks. **Always report before exiting.**
 
 ### Creating dependent work
