@@ -982,9 +982,6 @@ dd_delete() {
 
   local pid
   pid=$(dd_project_id)
-  local cascade_param=""
-  [ "$cascade" = true ] && cascade_param="&cascade=true"
-
   for bead_id in "${bead_ids[@]}"; do
     local uuid
     uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
@@ -1005,7 +1002,9 @@ dd_delete() {
       esac
     fi
 
-    dd_api DELETE "/beads/${uuid}?projectId=${pid}${cascade_param}" > /dev/null
+    local delete_qs=""
+    [ "$cascade" = true ] && delete_qs="?cascade=true"
+    dd_api DELETE "/beads/${uuid}${delete_qs}" > /dev/null
     echo "Deleted: ${uuid}"
   done
 }
