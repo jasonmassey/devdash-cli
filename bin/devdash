@@ -624,9 +624,9 @@ dd_ready() {
          | select((.blockedBy | length) == 0 or ([.blockedBy[] | IN($done[])] | all))]
     | [.[] | select((.beadType // "task") != "thought")]
     | if $c != "" then [.[] | select(.createdAt >= $c)] else . end
-    | sort_by(.priority)
+    | sort_by(-(.automabilityScore // 0), .priority)
     | .[]
-    | "○ \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)"
+    | "○ \(.localBeadId // .id) [P\(.priority)]\(if .automabilityGrade then " [\(.automabilityGrade)]" else "" end) [\(.beadType // "task")] - \(.subject)"
   '
 }
 
@@ -659,7 +659,49 @@ dd_show() {
     completionResult: .completionResult,
     createdAt: .createdAt,
     updatedAt: .updatedAt
-  } + (if .staleSince != null then {staleSince: .staleSince, staleMinutes: .staleMinutes} else {} end)'
+  }
+  + (if .staleSince != null then {staleSince: .staleSince, staleMinutes: .staleMinutes} else {} end)
+  + (if .automabilityGrade != null then {
+      burnIntelligence: {
+        complexityScore: .complexityScore,
+        automabilityScore: .automabilityScore,
+        automabilityGrade: .automabilityGrade,
+        factors: .burnScores,
+        scoredAt: .burnScoredAt
+      }
+    } else {} end)'
+}
+
+dd_score() {
+  local pid
+  pid=$(dd_project_id)
+
+  if [ -z "${1:-}" ]; then
+    # Bulk score all unscored beads in project
+    local result
+    result=$(dd_api POST "/projects/${pid}/beads/score" -d '{}')
+    local scored
+    scored=$(echo "$result" | jq -r '.scored')
+    if [ "$scored" = "0" ]; then
+      echo "No unscored beads found."
+    else
+      echo "Scored $scored beads:"
+      echo "$result" | jq -r '.results[] | "  \(.beadId | .[0:8])  \(.automabilityGrade) (\(.automabilityScore)/100)  complexity=\(.complexityScore)"'
+    fi
+  else
+    # Score a specific bead
+    local uuid
+    uuid=$(dd_resolve_id "$1" "$pid") || exit 1
+    local result
+    result=$(dd_api POST "/projects/${pid}/beads/${uuid}/score" -d '{}')
+    echo "$result" | jq '{
+      beadId: .beadId,
+      complexityScore: .complexityScore,
+      automabilityScore: .automabilityScore,
+      automabilityGrade: .automabilityGrade,
+      factors: .factors
+    }'
+  fi
 }
 
 dd_diagnose() {
@@ -2968,6 +3010,7 @@ case "${1:-help}" in
       *) echo "Usage: devdash dep add <issue> <depends-on>" >&2; exit "$DD_EXIT_USER" ;;
     esac
     ;;
+  score)    shift; dd_score "$@" ;;
   diagnose) shift; dd_diagnose "$@" ;;
   jobs)    shift; dd_jobs "$@" ;;
   reconcile-tasks) shift; dd_reconcile_tasks "$@" ;;
