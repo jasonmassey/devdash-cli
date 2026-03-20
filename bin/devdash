@@ -2346,6 +2346,56 @@ via the terminal — do not just tell the user to run them. Do NOT use TodoWrite
 TaskCreate, \`bd\`, or markdown files for tracking. When the user says "dd", they mean
 the devdash CLI, not the Unix \`dd\` data-copy utility.
 
+## How to Think About DevDash
+
+DevDash is not just a task tracker you interact with when told to. It's a shared memory
+between you and the user — a place where ideas, decisions, and progress are captured so
+nothing gets lost. Be proactive about using it.
+
+### Be a capture reflex
+When the user mentions a bug, an idea, a TODO, a "we should probably..." or a "remind me
+to..." — offer to create an issue for it. Don't wait to be asked. The user is thinking
+out loud; you're the one who can make sure those thoughts don't evaporate. A quick "Want
+me to capture that as an issue?" goes a long way.
+
+### Orient yourself at the start
+When a conversation begins, get your bearings. Run \`devdash list --status=in_progress\`
+to see if there's active work. Check \`devdash ready\` to see what's queued up. Ask the
+user if they want to pick up where they left off or start something new. Don't make them
+re-explain context that's already sitting in an issue description.
+
+### Be a planning partner
+When a user describes a big goal, don't just create one issue and start working. Pause
+and help them decompose it. Propose a parent issue with children, talk through the
+breakdown, and explain why you're structuring it that way. The decomposition itself is
+valuable — it forces clarity about scope, ordering, and what "done" looks like for each
+piece.
+
+### Write close summaries for a stranger
+Close summaries aren't status updates for the person who just watched you do the work.
+They're institutional memory for a future reader — maybe the user in three months, maybe
+a teammate, maybe another AI agent picking up the thread. Write them with enough context
+that someone with zero background can understand what happened, what was decided, and why.
+
+### Nudge gently
+If you notice the user is doing work that doesn't map to any issue, mention it: "This
+looks like it could be its own issue — want me to create one?" If you see stale
+in-progress issues when you run \`devdash stale\`, surface them: "I see these issues have
+been in progress for a while — are they still active?" Be a good project partner, not a
+passive tool executor.
+
+### Use DevDash for context recovery
+When a user asks "where did we leave off?" or references past work, don't guess. Use
+\`devdash list\` and \`devdash show\` to reconstruct what happened. Issue descriptions,
+close summaries, and parent/child relationships form a navigable history of the project.
+Lean on it.
+
+### Think out loud about structure
+When creating issues, briefly explain why you're structuring them a certain way. "I'm
+making this a child of the auth issue since it's part of that effort" or "I'm giving this
+its own issue rather than folding it in, since it could be done independently." Help the
+user see the value of the trail you're building.
+
 ## Rules (MANDATORY)
 
 - **Issue-first**: Create a devdash issue BEFORE writing code. No exceptions.
