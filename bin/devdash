@@ -2191,10 +2191,17 @@ $(if [ "$close_gate" = "commit" ]; then
 \`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`. Filters on updatedAt (list/stale) or createdAt (ready).
 
 ### Creating & updating
-- \`${dd_cmd} create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
+- \`${dd_cmd} create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>]\`
 - \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
 - \`${dd_cmd} close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`${dd_cmd} delete <id> [--force] [--cascade]\`
+
+**\`--description\` is required on create.** A good description explains:
+- **What** needs to happen and **why** (not just a file list)
+- **Approach** or key decisions being made
+- **Scope boundaries** — what's explicitly included/excluded
+Bad: \`--description="package.json, tsconfig, all source files"\`
+Good: \`--description="Create Express MCP server proxying dev-dash API. OAuth via dev-dash Google auth, 8 tools for issue/project CRUD, StreamableHTTP transport. Excludes deployment."\`
 
 ### Reporting & monitoring
 - \`${dd_cmd} report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
@@ -2228,8 +2235,16 @@ $(if [ "$close_gate" = "commit" ]; then
     echo "\`git add\` → \`git commit\` → \`git push\` → \`${dd_cmd} close <id>\`"
   fi)
 Git operations MUST succeed before closing. Never run git and ${dd_cmd} close in parallel.
-On successful completions, include metadata when closing: \`${dd_cmd} close <id> --summary="what changed" --commit=\$(git rev-parse HEAD)\`.
+On successful completions, include metadata when closing: \`${dd_cmd} close <id> --summary="..." --commit=\$(git rev-parse HEAD)\`.
 If a PR exists, include \`--pr=URL\` too.
+
+**Close summaries must be substantive.** Include:
+- What was implemented (key files, components, endpoints)
+- Important decisions made and why
+- Anything surprising discovered during implementation
+- Follow-up work needed (reference new issues if created)
+Bad: \`--summary="scaffolded the project"\`
+Good: \`--summary="Built MCP server with 8 tools (issue CRUD + project list/stats). Used StreamableHTTP transport with bearer auth. OAuth proxies to dev-dash Google auth via new redirect_url flow. Discovered SDK exports changed — McpServer is in sdk/server/mcp.js not sdk/server/index.js. Follow-up: deploy to Railway (issue xyz)."\`
 
 ### Creating pull requests
 When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
@@ -2244,13 +2259,15 @@ Issues:
 Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
 If the PR addresses multiple issues, list each on its own line.
 
-### Reporting progress (for agents)
-After completing code changes, report status to prevent the issue from appearing stale:
+### Reporting progress (IMPORTANT — do this actively)
+Report at every milestone, not just at the end. This keeps issues from appearing stale and creates a visible trail of progress:
 \`${dd_cmd} report <id> --status=code_complete --summary="brief description"\`
 Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
 After commit, report the SHA: \`${dd_cmd} report <id> --status=committed --commit=\$(git rev-parse HEAD) --summary="brief description"\`.
 After push, report the branch and, when practical, file count: \`${dd_cmd} report <id> --status=pushed --commit=\$(git rev-parse HEAD) --branch=\$(git branch --show-current) --files-changed=N\`.
 Report is fire-and-forget — if it fails, nothing breaks. **Always report before exiting.**
+
+**When to report**: After finishing a significant sub-step (e.g. "API client done, moving to OAuth"), after resolving a blocker, after each commit, and before any long-running operation. Don't wait until everything is done.
 
 ### Creating dependent work
 \`${dd_cmd} create --title="Feature X" --type=feature\` → \`${dd_cmd} create --title="Tests for X" --type=task\` → \`${dd_cmd} dep add <tests-id> <feature-id>\`
@@ -2258,12 +2275,25 @@ Report is fire-and-forget — if it fails, nothing breaks. **Always report befor
 ### When to create issues
 DevDash issues are cheap — err on the side of creating them. The goal is a clear audit trail where every commit maps to an issue.
 
-- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** before starting implementation. Use \`--parent=<id>\` to group them under the top-level issue.
+- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** BEFORE writing any code. Use \`--parent=<id>\` to group them under the top-level issue. Plan first, then execute each child issue sequentially.
 - **Scope creep**: If you discover extra work mid-task (a bug, a refactor, a missing test), create a new issue rather than expanding the current one.
 - **One commit = one issue**: If you're about to make a commit that doesn't map to an existing issue, stop and create one first.
 - **Exploratory work**: Even spikes or investigations deserve an issue — it tracks time spent and captures findings in the close summary.
 - **Don't batch**: Avoid creating a single "do everything" issue. Granular issues make progress visible and let work be parallelized across agents or worktrees.
 - **PRs can bundle**: Multiple child issues and commits can roll into a single PR. Granularity is for the issue+commit trail, not the PR.
+
+**Example — scaffolding a project** (BAD vs GOOD):
+
+BAD: One issue "Scaffold project" → one giant commit → sparse close summary.
+
+GOOD: Create parent issue "Build MCP server", then child issues:
+1. "Scaffold project config" — package.json, tsconfig, .nvmrc, .gitignore
+2. "Implement API client" — HTTP wrapper for dev-dash REST API
+3. "Implement OAuth provider" — OAuth 2.0 flow proxying to dev-dash Google auth
+4. "Implement MCP tools" — 8 tools for issue/project CRUD
+5. "Wire up Express server" — StreamableHTTP transport, bearer auth, session mgmt
+
+Each child gets its own commit, report, and close summary. The parent gets closed last with an overall summary.
 
 ### Bead relationships
 Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
@@ -2338,10 +2368,17 @@ ${close_rule}
 \`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`. Filters on updatedAt (list/stale) or createdAt (ready).
 
 ### Creating & updating
-- \`devdash create --title="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--description="..."] [--parent=<id>]\`
+- \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>]\`
 - \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
 - \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`devdash delete <id> [--force] [--cascade]\`
+
+**\`--description\` is required on create.** A good description explains:
+- **What** needs to happen and **why** (not just a file list)
+- **Approach** or key decisions being made
+- **Scope boundaries** — what's explicitly included/excluded
+Bad: \`--description="package.json, tsconfig, all source files"\`
+Good: \`--description="Create Express MCP server proxying dev-dash API. OAuth via dev-dash Google auth, 8 tools for issue/project CRUD, StreamableHTTP transport. Excludes deployment."\`
 
 ### Reporting & monitoring
 - \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
@@ -2374,8 +2411,16 @@ Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 ### Completing work
 ${completing_work}
 Git operations MUST succeed before closing. Never run git and devdash close in parallel.
-On successful completions, include metadata when closing: \`devdash close <id> --summary="what changed" --commit=\$(git rev-parse HEAD)\`.
+On successful completions, include metadata when closing: \`devdash close <id> --summary="..." --commit=\$(git rev-parse HEAD)\`.
 If a PR exists, include \`--pr=URL\` too.
+
+**Close summaries must be substantive.** Include:
+- What was implemented (key files, components, endpoints)
+- Important decisions made and why
+- Anything surprising discovered during implementation
+- Follow-up work needed (reference new issues if created)
+Bad: \`--summary="scaffolded the project"\`
+Good: \`--summary="Built MCP server with 8 tools (issue CRUD + project list/stats). Used StreamableHTTP transport with bearer auth. OAuth proxies to dev-dash Google auth via new redirect_url flow. Discovered SDK exports changed — McpServer is in sdk/server/mcp.js not sdk/server/index.js. Follow-up: deploy to Railway (issue xyz)."\`
 
 ### Creating pull requests
 When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
@@ -2390,13 +2435,15 @@ Issues:
 Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
 If the PR addresses multiple issues, list each on its own line.
 
-### Reporting progress (IMPORTANT for agents)
-After completing code changes, report status to prevent the issue from appearing stale:
+### Reporting progress (IMPORTANT — do this actively)
+Report at every milestone, not just at the end. This keeps issues from appearing stale and creates a visible trail of progress:
 \`devdash report <id> --status=code_complete --summary="brief description"\`
 Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
 After commit, report the SHA: \`devdash report <id> --status=committed --commit=\$(git rev-parse HEAD) --summary="brief description"\`.
 After push, report the branch and, when practical, file count: \`devdash report <id> --status=pushed --commit=\$(git rev-parse HEAD) --branch=\$(git branch --show-current) --files-changed=N\`.
 Report is fire-and-forget — if it fails, nothing breaks. **Always report before exiting.**
+
+**When to report**: After finishing a significant sub-step (e.g. "API client done, moving to OAuth"), after resolving a blocker, after each commit, and before any long-running operation. Don't wait until everything is done.
 
 ### Creating dependent work
 \`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
@@ -2404,11 +2451,25 @@ Report is fire-and-forget — if it fails, nothing breaks. **Always report befor
 ### When to create issues
 DevDash issues are cheap — err on the side of creating them. The goal is a clear audit trail where every commit maps to an issue.
 
-- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** before starting implementation. Use \`--parent=<id>\` to group them under the top-level issue.
+- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** BEFORE writing any code. Use \`--parent=<id>\` to group them under the top-level issue. Plan first, then execute each child issue sequentially.
 - **Scope creep**: If you discover extra work mid-task (a bug, a refactor, a missing test), create a new issue rather than expanding the current one.
 - **One commit = one issue**: If you're about to make a commit that doesn't map to an existing issue, stop and create one first.
 - **Exploratory work**: Even spikes or investigations deserve an issue — it tracks time spent and captures findings in the close summary.
 - **Don't batch**: Avoid creating a single "do everything" issue. Granular issues make progress visible and let work be parallelized across agents or worktrees.
+- **PRs can bundle**: Multiple child issues and commits can roll into a single PR. Granularity is for the issue+commit trail, not the PR.
+
+**Example — scaffolding a project** (BAD vs GOOD):
+
+BAD: One issue "Scaffold project" → one giant commit → sparse close summary.
+
+GOOD: Create parent issue "Build MCP server", then child issues:
+1. "Scaffold project config" — package.json, tsconfig, .nvmrc, .gitignore
+2. "Implement API client" — HTTP wrapper for dev-dash REST API
+3. "Implement OAuth provider" — OAuth 2.0 flow proxying to dev-dash Google auth
+4. "Implement MCP tools" — 8 tools for issue/project CRUD
+5. "Wire up Express server" — StreamableHTTP transport, bearer auth, session mgmt
+
+Each child gets its own commit, report, and close summary. The parent gets closed last with an overall summary.
 
 ### Bead relationships
 Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
