@@ -1082,7 +1082,13 @@ dd_dep_add() {
 
   local issue_uuid dep_uuid
   issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
-  dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+  # For the blocker: if it's a full UUID, pass through directly (supports cross-project deps).
+  # Only resolve within current project if it's a short prefix or local ID.
+  if [[ ${#depends_on} -eq 36 && "$depends_on" == *-*-*-*-* ]]; then
+    dep_uuid="$depends_on"
+  else
+    dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+  fi
 
   local body
   body=$(jq -n --arg pid "$pid" --arg dep "$dep_uuid" '{projectId: $pid, blockedBy: $dep}')
@@ -1101,7 +1107,12 @@ dd_dep_remove() {
 
   local issue_uuid dep_uuid
   issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
-  dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+  # Same cross-project passthrough as dep add
+  if [[ ${#depends_on} -eq 36 && "$depends_on" == *-*-*-*-* ]]; then
+    dep_uuid="$depends_on"
+  else
+    dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+  fi
 
   dd_api DELETE "/beads/${issue_uuid}/dependencies/${dep_uuid}?projectId=${pid}" > /dev/null
   echo "Removed dependency: ${issue} no longer depends on ${depends_on}"
@@ -2423,6 +2434,24 @@ Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`/\
 - Use \`--parent=<id>\` when breaking a large issue into sub-tasks.
 - Use \`dep add\` when one issue must complete before another can start (\`dep remove\` to undo).
 - Prefer parent/child for "parts of a whole"; prefer dependencies for "X must happen before Y."
+
+### Cross-project dependencies
+Dependencies can span projects. Use a full UUID from another project as the blocker:
+\`${dd_cmd} dep add <local-issue> <full-uuid-from-other-project>\`
+
+The server validates you have access to both projects. When the blocking bead completes in the other project, your bead auto-unblocks.
+
+### Working across multiple projects
+Use \`DD_PROJECT_ID=<full-uuid>\` to target a different project for any command:
+\`DD_PROJECT_ID=<uuid> ${dd_cmd} show <id>\`
+\`DD_PROJECT_ID=<uuid> ${dd_cmd} list --status=pending\`
+\`DD_PROJECT_ID=<uuid> ${dd_cmd} create --title="..." --description="..."\`
+
+When cascading changes across projects (e.g. an API change that affects CLI and MCP):
+1. Create parent issues in each affected project
+2. Use cross-project deps to express "CLI work depends on API work"
+3. Work the API project first, then the dependents auto-unblock
+4. Each project gets its own commits — don't mix repos in one commit
 PRIME
 }
 
@@ -2593,6 +2622,7 @@ Issues:
 ### Dependencies
 - \`devdash dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 - \`devdash dep remove <issue> <depends-on>\` — Remove a dependency.
+- Cross-project: use a full UUID from another project as the blocker. Auto-unblocks when the blocker completes.
 
 ### Reporting & monitoring
 - \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
@@ -2621,8 +2651,15 @@ Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 ### Priority
 0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Integers only.
 
-### Cross-project
+### Cross-project work
 \`DD_PROJECT_ID=<full-uuid> devdash <command>\` — target a different project.
+
+When cascading changes across projects (e.g. an API change that affects CLI and MCP server):
+1. Create parent issues in each affected project.
+2. Use cross-project deps to express ordering: \`devdash dep add <local-issue> <full-uuid-from-other-project>\`.
+3. Work the upstream project first — dependents auto-unblock when blockers complete.
+4. Each project gets its own commits. Don't mix repos in one commit.
+5. Use \`DD_PROJECT_ID=<uuid>\` to create/close issues in the other project.
 INSTRUCTIONS
 }
 
