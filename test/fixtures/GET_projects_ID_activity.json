@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "id": "act-001",
+      "action": "created",
+      "actorType": "user",
+      "actor": {"displayName": "Jason"},
+      "artifactName": "Test task",
+      "createdAt": "2026-03-20T10:00:00.000Z"
+    },
+    {
+      "id": "act-002",
+      "action": "updated",
+      "actorType": "agent",
+      "actor": {"displayName": "Claude"},
+      "artifactName": "Bug fix",
+      "metadata": {"field": "status", "value": "in_progress"},
+      "createdAt": "2026-03-20T11:00:00.000Z"
+    }
+  ]
+}

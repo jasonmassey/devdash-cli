@@ -1,0 +1,7 @@
+{
+  "summary": {"succeeded": 2, "failed": 0},
+  "results": [
+    {"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "success": true},
+    {"id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "success": true}
+  ]
+}

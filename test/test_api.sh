@@ -236,13 +236,26 @@ echo "-- dep add --"
 setup_api_test
 output=$(run_dd dep add aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb 2>&1) || true
 assert_contains "dep add shows confirmation" "Added dependency" echo "$output"
-assert_api_called "dep add patches issue"    "PATCH" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-assert_api_called "dep add patches dep"      "PATCH" "/beads/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+assert_api_called "dep add posts to dependencies" "POST" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/dependencies"
+assert_api_body "dep add body has blockedBy" "POST" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/dependencies" "blockedBy"
 teardown_api_test
 
 # dep add missing args
 setup_api_test
-assert_exit "dep add without args exits 1" 1 bash -c "cd '$_MOCK_WORKDIR' && '$DEVDASH' dep add 2>/dev/null"
+assert_exit "dep add without args exits 1" 1 run_dd dep add
+teardown_api_test
+
+# ── dep remove ──────────────────────────────────────
+echo "-- dep remove --"
+setup_api_test
+output=$(run_dd dep remove aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb 2>&1) || true
+assert_contains "dep remove shows confirmation" "Removed dependency" echo "$output"
+assert_api_called "dep remove calls DELETE" "DELETE" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/dependencies/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+teardown_api_test
+
+# dep remove missing args
+setup_api_test
+assert_exit "dep remove without args exits 1" 1 run_dd dep remove
 teardown_api_test
 
 # ── project list ─────────────────────────────────────
@@ -276,6 +289,63 @@ teardown_api_test
 
 # project delete missing ID
 assert_exit "project delete without ID exits 1" 1 "$DEVDASH" project delete
+
+# ── comment ──────────────────────────────────────────
+echo "-- comment --"
+setup_api_test
+output=$(run_dd comment aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa --body="Test comment" 2>&1) || true
+assert_contains "comment shows confirmation" "Comment added" echo "$output"
+assert_api_called "comment calls POST" "POST" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/comments"
+assert_api_body "comment body has content" "POST" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/comments" "Test comment"
+teardown_api_test
+
+# comment missing args
+assert_exit "comment without ID exits 1" 1 "$DEVDASH" comment
+
+setup_api_test
+assert_exit "comment without body exits 1" 1 run_dd comment aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+teardown_api_test
+
+# ── comments ────────────────────────────────────────
+echo "-- comments --"
+setup_api_test
+output=$(run_dd comments aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "comments shows first comment" "First comment" echo "$output"
+assert_contains "comments shows author" "Jason" echo "$output"
+assert_contains "comments shows agent reply" "Agent reply" echo "$output"
+assert_api_called "comments calls GET" "GET" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/comments"
+teardown_api_test
+
+# comments missing ID
+assert_exit "comments without ID exits 1" 1 "$DEVDASH" comments
+
+# ── activity ────────────────────────────────────────
+echo "-- activity --"
+setup_api_test
+output=$(run_dd activity 2>&1) || true
+assert_contains "activity shows action" "created" echo "$output"
+assert_contains "activity shows actor" "Jason" echo "$output"
+assert_contains "activity shows artifact" "Test task" echo "$output"
+assert_api_called "activity calls GET" "GET" "/projects/95ca3de0-7e4f-4f9e-9b17-36f5609cfa11/activity"
+teardown_api_test
+
+# ── bulk close ──────────────────────────────────────
+echo "-- bulk close --"
+setup_api_test
+output=$(run_dd close aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb 2>&1) || true
+assert_contains "bulk close shows first closed" "Closed: aaaaaaaa" echo "$output"
+assert_contains "bulk close shows second closed" "Closed: bbbbbbbb" echo "$output"
+assert_api_called "bulk close calls POST bulk" "POST" "/beads/bulk/close"
+teardown_api_test
+
+# ── list --parent ───────────────────────────────────
+echo "-- list --parent --"
+setup_api_test
+# dev-dash-1 (aaaaaaaa) has no parentBeadId in fixture, so filtering by a different parent should exclude it
+output=$(run_dd list --parent=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+# The fixture beads don't have parentBeadId set to aaaaaaaa, so result should be empty/filtered
+assert_not_contains "list --parent filters out non-children" "dev-dash-1" echo "$output"
+teardown_api_test
 
 # ── Error responses ──────────────────────────────────
 echo "-- API error responses --"
