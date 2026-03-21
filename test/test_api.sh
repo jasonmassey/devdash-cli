@@ -300,7 +300,9 @@ assert_api_body "comment body has content" "POST" "/beads/aaaaaaaa-aaaa-aaaa-aaa
 teardown_api_test
 
 # comment missing args
-assert_exit "comment without ID exits 1" 1 "$DEVDASH" comment
+setup_api_test
+assert_exit "comment without ID exits 1" 1 run_dd comment
+teardown_api_test
 
 setup_api_test
 assert_exit "comment without body exits 1" 1 run_dd comment aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
@@ -317,7 +319,9 @@ assert_api_called "comments calls GET" "GET" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaa
 teardown_api_test
 
 # comments missing ID
-assert_exit "comments without ID exits 1" 1 "$DEVDASH" comments
+setup_api_test
+assert_exit "comments without ID exits 1" 1 run_dd comments
+teardown_api_test
 
 # ── activity ────────────────────────────────────────
 echo "-- activity --"
