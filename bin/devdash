@@ -2418,11 +2418,19 @@ change the schema — just add a null check."\`
 ## Using Context from Issues
 
 When picking up existing work, run \`devdash show <id>\` to read the full description and
-close summary before starting. If a parent issue is set, check it only if you need to
-understand the broader goal — siblings may contain prior decisions worth knowing.
+close summary before starting. If a parent issue is set, check it only if the current
+issue's description doesn't give you enough context. Don't fetch siblings unless you're
+specifically stuck or the description references them.
 
 When a user asks where things left off, use \`devdash list\` and \`devdash show\` to
 reconstruct — don't guess.
+
+## When Things Go Wrong
+
+If work on an issue fails or gets abandoned, don't leave it in_progress. Close it with a
+summary explaining what went wrong, what was attempted, and what's unfinished. A failed
+close summary is more valuable than a silently stale issue — it saves the next person
+from repeating the same dead end.
 
 ## Completing Work
 
