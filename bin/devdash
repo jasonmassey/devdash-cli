@@ -2341,140 +2341,104 @@ dd_generate_agent_instructions() {
 
 # DevDash — AI Agent Task Tracking
 
-This project uses **devdash** (\`dd\`) for task tracking. Run devdash commands yourself
-via the terminal — do not just tell the user to run them. Do NOT use TodoWrite,
-TaskCreate, \`bd\`, or markdown files for tracking. When the user says "dd", they mean
-the devdash CLI, not the Unix \`dd\` data-copy utility.
-
-## How to Think About DevDash
-
-DevDash is not just a task tracker you interact with when told to. It's a shared memory
+This project uses **devdash** (\`dd\`) for task tracking. DevDash is a shared memory
 between you and the user — a place where ideas, decisions, and progress are captured so
-nothing gets lost. Be proactive about using it.
+nothing gets lost.
 
-### Be a capture reflex
-When the user mentions a bug, an idea, a TODO, a "we should probably..." or a "remind me
-to..." — offer to create an issue for it. Don't wait to be asked. The user is thinking
-out loud; you're the one who can make sure those thoughts don't evaporate. A quick "Want
-me to capture that as an issue?" goes a long way.
+Run devdash commands yourself via the terminal — do not just tell the user to run them.
+Do NOT use TodoWrite, TaskCreate, \`bd\`, or markdown files for tracking. When the user
+says "dd", they mean the devdash CLI, not the Unix \`dd\` data-copy utility.
 
-### Orient yourself at the start
-When a conversation begins, get your bearings. Run \`devdash list --status=in_progress\`
-to see if there's active work. Check \`devdash ready\` to see what's queued up. Ask the
-user if they want to pick up where they left off or start something new. Don't make them
-re-explain context that's already sitting in an issue description.
+Issues are called "beads" internally. You'll see this in fields like \`parentBeadId\`.
 
-### Be a planning partner
-When a user describes a big goal, don't just create one issue and start working. Pause
-and help them decompose it. Propose a parent issue with children, talk through the
-breakdown, and explain why you're structuring it that way. The decomposition itself is
-valuable — it forces clarity about scope, ordering, and what "done" looks like for each
-piece.
+## Core Principles
 
-### Write close summaries for a stranger
-Close summaries aren't status updates for the person who just watched you do the work.
-They're institutional memory for a future reader — maybe the user in three months, maybe
-a teammate, maybe another AI agent picking up the thread. Write them with enough context
-that someone with zero background can understand what happened, what was decided, and why.
+**Be a capture reflex.**
+When the user mentions a bug, idea, TODO, or "we should probably..." — offer to create
+an issue. Don't wait to be asked.
 
-### Nudge gently
-If you notice the user is doing work that doesn't map to any issue, mention it: "This
-looks like it could be its own issue — want me to create one?" If you see stale
-in-progress issues when you run \`devdash stale\`, surface them: "I see these issues have
-been in progress for a while — are they still active?" Be a good project partner, not a
-passive tool executor.
+**Issue-first.**
+Create an issue before doing work. Your first action when asked to implement something
+should be \`devdash create\`.
 
-### Use DevDash for context recovery
-When a user asks "where did we leave off?" or references past work, don't guess. Use
-\`devdash list\` and \`devdash show\` to reconstruct what happened. Issue descriptions,
-close summaries, and parent/child relationships form a navigable history of the project.
-Lean on it.
+**One issue per logical unit of work.**
+If a task has multiple steps, create a parent issue and child issues. Scope creep during
+a task = new issue, not an expanded current one. Every git commit must map to a devdash
+issue.
 
-### Think out loud about structure
-When creating issues, briefly explain why you're structuring them a certain way. "I'm
-making this a child of the auth issue since it's part of that effort" or "I'm giving this
-its own issue rather than folding it in, since it could be done independently." Help the
-user see the value of the trail you're building.
+## Rules
 
-## Rules (MANDATORY)
-
-- **Issue-first**: Create a devdash issue BEFORE writing code. No exceptions.
-- **Issue-per-commit**: Every git commit must map to a devdash issue. If scope expands, create new issues.
-- **Mark in-progress**: \`devdash update <id> --status=in_progress\` before starting work.
-- **Pre-commit checkpoint**: Before each \`git commit\`, verify you have an issue. If not, create one.
+1. Create an issue before starting work. No exceptions.
+2. \`devdash update <id> --status=in_progress\` before starting work on an issue.
+3. Close with a substantive summary — write it for a future reader with zero context.
+4. Don't batch unrelated work into a single issue.
 ${close_rule}
-- **No orphaned work**: At session end, every commit must map to a closed issue.
-- **Preserve stderr**: Avoid \`2>/dev/null\` on devdash commands — stderr contains error details you'll need for debugging failures.
+6. No orphaned work: at session end, every commit must map to a closed issue.
+7. Git operations MUST succeed before closing. Never run git and devdash close in parallel.
+8. Preserve stderr: avoid \`2>/dev/null\` on devdash commands.
 
-## CLI Reference
+## Close Summaries
 
-### Viewing issues
-- \`devdash ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
-- \`devdash list [--status=pending|in_progress|completed] [--since=X]\` — All issues, optionally filtered by status and/or time.
-- \`devdash blocked\` — Pending issues with unsatisfied dependencies.
-- \`devdash show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
-- \`devdash stats\` — Project health: open/closed/blocked counts.
+Close summaries are institutional memory, not status updates. Write them for someone with
+no background on the work.
 
-\`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`. Filters on updatedAt (list/stale) or createdAt (ready).
+Bad: \`--summary="done"\`
 
-### Creating & updating
-- \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>]\`
-- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
-- \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
-- \`devdash delete <id> [--force] [--cascade]\`
+Good: \`--summary="Refactored the auth flow to use PKCE. Moved token validation to
+middleware so it runs before route handlers. Discovered the refresh token endpoint was
+returning 200 on invalid tokens — filed a separate issue for that."\`
 
-**\`--description\` is required on create.** A good description explains:
-- **What** needs to happen and **why** (not just a file list)
-- **Approach** or key decisions being made
-- **Scope boundaries** — what's explicitly included/excluded
-Bad: \`--description="package.json, tsconfig, all source files"\`
-Good: \`--description="Create Express MCP server proxying dev-dash API. OAuth via dev-dash Google auth, 8 tools for issue/project CRUD, StreamableHTTP transport. Excludes deployment."\`
+Include: what was done, key decisions, anything surprising, and follow-up work needed.
 
-### Reporting & monitoring
-- \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
-- \`devdash stale [--since=X]\` — List in-progress issues with no recent activity (stale > 30 min).
+## Issue Decomposition
 
-### Dependencies
-- \`devdash dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
+For any multi-step goal, pause before creating issues and decompose it first. Create a
+parent issue for the overall goal, then one child issue per step using \`--parent=<id>\`.
+Work through them sequentially. Each child gets its own close summary; close the parent
+last.
 
-### Jobs
-- \`devdash jobs [--bead=<id>]\` — List recent jobs (optionally filtered by bead)
-- \`devdash jobs show <id>\` — Job details + failure analysis
-- \`devdash jobs log <id> [--tail=N]\` — Job output log (last N lines if specified)
-- \`devdash jobs failures [--bead=<id>]\` — Recent failed jobs
-- \`devdash diagnose <id>\` — Investigate bead: status, job history, failure details
+Bad: One issue "Build auth system" → sparse close summary.
 
-### IDs
-Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
+Good: Parent "Build auth system" with children:
+1. "Design auth schema"
+2. "Implement login endpoint"
+3. "Implement token refresh"
+4. "Add auth middleware"
 
-### Priority
-0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Integers only.
+## Descriptions
 
-### Cross-project
-\`DD_PROJECT_ID=<full-uuid> devdash <command>\`
+A good description explains what, why, approach, and scope boundaries.
 
-## Workflow
+Bad: \`--description="fix the bug"\`
 
-### Starting work
-\`devdash ready\` → \`devdash show <id>\` → \`devdash update <id> --status=in_progress\`
+Good: \`--description="The /api/projects endpoint returns 500 when the user has no
+projects. Root cause: query assumes at least one row. Fix: return empty array. Don't
+change the schema — just add a null check."\`
 
-### Completing work
+## Using Context from Issues
+
+When picking up existing work, run \`devdash show <id>\` to read the full description and
+close summary before starting. If a parent issue is set, check it only if you need to
+understand the broader goal — siblings may contain prior decisions worth knowing.
+
+When a user asks where things left off, use \`devdash list\` and \`devdash show\` to
+reconstruct — don't guess.
+
+## Completing Work
+
 ${completing_work}
-Git operations MUST succeed before closing. Never run git and devdash close in parallel.
-On successful completions, include metadata when closing: \`devdash close <id> --summary="..." --commit=\$(git rev-parse HEAD)\`.
+On successful completions: \`devdash close <id> --summary="..." --commit=\$(git rev-parse HEAD)\`.
 If a PR exists, include \`--pr=URL\` too.
 
-**Close summaries must be substantive.** Include:
-- What was implemented (key files, components, endpoints)
-- Important decisions made and why
-- Anything surprising discovered during implementation
-- Follow-up work needed (reference new issues if created)
-Bad: \`--summary="scaffolded the project"\`
-Good: \`--summary="Built MCP server with 8 tools (issue CRUD + project list/stats). Used StreamableHTTP transport with bearer auth. OAuth proxies to dev-dash Google auth via new redirect_url flow. Discovered SDK exports changed — McpServer is in sdk/server/mcp.js not sdk/server/index.js. Follow-up: deploy to Railway (issue xyz)."\`
+### Reporting progress
+Report at every milestone, not just at the end:
+\`devdash report <id> --status=code_complete --summary="brief description"\`
+Valid statuses: \`code_complete\`, \`committed\`, \`pushed\`, \`error\`.
+After commit: \`devdash report <id> --status=committed --commit=\$(git rev-parse HEAD)\`.
+Report is fire-and-forget — if it fails, nothing breaks. Always report before exiting.
 
 ### Creating pull requests
-When opening a PR, include a \`## DevDash\` footer section linking the devdash issue(s):
-
+Include a \`## DevDash\` footer section linking the devdash issue(s):
 \`\`\`
 ## DevDash
 Project: \`${project_id}\`
@@ -2482,58 +2446,32 @@ Issues:
 - [<issue-id>](${frontend_url}/issue/<issue-id>)
 \`\`\`
 
-Replace \`<issue-id>\` with the full UUID of each devdash issue the PR addresses.
-If the PR addresses multiple issues, list each on its own line.
+## CLI Reference
 
-### Reporting progress (IMPORTANT — do this actively)
-Report at every milestone, not just at the end. This keeps issues from appearing stale and creates a visible trail of progress:
-\`devdash report <id> --status=code_complete --summary="brief description"\`
-Valid statuses: \`code_complete\` (code written), \`committed\` (git committed), \`pushed\` (git pushed), \`error\` (something went wrong).
-After commit, report the SHA: \`devdash report <id> --status=committed --commit=\$(git rev-parse HEAD) --summary="brief description"\`.
-After push, report the branch and, when practical, file count: \`devdash report <id> --status=pushed --commit=\$(git rev-parse HEAD) --branch=\$(git branch --show-current) --files-changed=N\`.
-Report is fire-and-forget — if it fails, nothing breaks. **Always report before exiting.**
+### Viewing issues
+- \`devdash ready [--since=X]\` — Pending + unblocked issues sorted by priority. **Start here.**
+- \`devdash list [--status=pending|in_progress|completed] [--since=X]\` — All issues with optional filters.
+- \`devdash blocked\` — Pending issues with unsatisfied dependencies.
+- \`devdash show <id>\` — Full issue detail.
+- \`devdash stats\` — Project health: open/closed/blocked counts.
+- \`devdash stale [--since=X]\` — In-progress issues with no recent activity.
 
-**When to report**: After finishing a significant sub-step (e.g. "API client done, moving to OAuth"), after resolving a blocker, after each commit, and before any long-running operation. Don't wait until everything is done.
+### Creating & updating
+- \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>]\`
+- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4]\`
+- \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\`
+- \`devdash delete <id> [--force] [--cascade]\`
+- \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."]\`
+- \`devdash dep add <issue> <depends-on>\`
 
-### Creating dependent work
-\`devdash create --title="Feature X" --type=feature\` → \`devdash create --title="Tests for X" --type=task\` → \`devdash dep add <tests-id> <feature-id>\`
+### IDs
+Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 
-### When to create issues
-DevDash issues are cheap — err on the side of creating them. The goal is a clear audit trail where every commit maps to an issue.
+### Priority
+0=critical, 1=high, 2=medium (default), 3=low, 4=backlog.
 
-- **Plans with steps**: When building a plan or breaking down a feature, create **one issue per step** BEFORE writing any code. Use \`--parent=<id>\` to group them under the top-level issue. Plan first, then execute each child issue sequentially.
-- **Scope creep**: If you discover extra work mid-task (a bug, a refactor, a missing test), create a new issue rather than expanding the current one.
-- **One commit = one issue**: If you're about to make a commit that doesn't map to an existing issue, stop and create one first.
-- **Exploratory work**: Even spikes or investigations deserve an issue — it tracks time spent and captures findings in the close summary.
-- **Don't batch**: Avoid creating a single "do everything" issue. Granular issues make progress visible and let work be parallelized across agents or worktrees.
-- **PRs can bundle**: Multiple child issues and commits can roll into a single PR. Granularity is for the issue+commit trail, not the PR.
-
-**Example — scaffolding a project** (BAD vs GOOD):
-
-BAD: One issue "Scaffold project" → one giant commit → sparse close summary.
-
-GOOD: Create parent issue "Build MCP server", then child issues:
-1. "Scaffold project config" — package.json, tsconfig, .nvmrc, .gitignore
-2. "Implement API client" — HTTP wrapper for dev-dash REST API
-3. "Implement OAuth provider" — OAuth 2.0 flow proxying to dev-dash Google auth
-4. "Implement MCP tools" — 8 tools for issue/project CRUD
-5. "Wire up Express server" — StreamableHTTP transport, bearer auth, session mgmt
-
-Each child gets its own commit, report, and close summary. The parent gets closed last with an overall summary.
-
-### Bead relationships
-Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
-
-**Before starting work**, run \`devdash show <id>\` and check:
-- **parentBeadId**: If set, \`devdash show <parent-id>\` to understand the larger goal. Sibling beads (other children of that parent) may contain related context, prior decisions, or work you should build on.
-- **blockedBy / blocks**: Understand what this issue depends on and what depends on it — especially useful for ordering work.
-
-**When working in a worktree or isolated context**: You lack conversational history. Always explore the parent bead and its children (\`devdash list\` filtered by eye, or \`devdash show\` on related IDs) to recover context about the broader effort before diving into implementation.
-
-**When to create relationships**:
-- Use \`--parent=<id>\` when breaking a large issue into sub-tasks.
-- Use \`dep add\` when one issue must complete before another can start.
-- Prefer parent/child for "parts of a whole"; prefer dependencies for "X must happen before Y."
+### Cross-project
+\`DD_PROJECT_ID=<full-uuid> devdash <command>\`
 INSTRUCTIONS
 }
 
