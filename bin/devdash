@@ -2315,12 +2315,22 @@ Good: \`--description="Create Express MCP server proxying dev-dash API. OAuth vi
 - \`${dd_cmd} dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 - \`${dd_cmd} dep remove <issue> <depends-on>\` — Remove a dependency.
 
+### Analysis & execution
+- \`${dd_cmd} analyze <bead-id>\` — AI analysis of complexity, affected files, agent instructions.
+- \`${dd_cmd} dispatch <bead-id> [--priority=N] [--worker=docker|e2b]\` — Dispatch as an agent job.
+- \`${dd_cmd} diagnose <id>\` — Investigate bead: status, job history, failure details.
+- \`${dd_cmd} score [<id>]\` — Score complexity/automability (single bead or bulk).
+
 ### Jobs
 - \`${dd_cmd} jobs [--bead=<id>]\` — List recent jobs (optionally filtered by bead)
 - \`${dd_cmd} jobs show <id>\` — Job details + failure analysis
 - \`${dd_cmd} jobs log <id> [--tail=N]\` — Job output log (last N lines if specified)
 - \`${dd_cmd} jobs failures [--bead=<id>]\` — Recent failed jobs
-- \`${dd_cmd} diagnose <id>\` — Investigate bead: status, job history, failure details
+
+### Sync & maintenance
+- \`${dd_cmd} sync\` — Trigger full reconcile with GitHub.
+- \`${dd_cmd} import <num> | --all\` — Import GitHub issue(s) into the project.
+- \`${dd_cmd} reconcile-tasks [--dry-run] [--auto-fix]\` — Audit backlog for stale/redundant tasks.
 
 ### IDs
 Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
@@ -2562,33 +2572,57 @@ Issues:
 ## CLI Reference
 
 ### Viewing issues
-- \`devdash ready [--since=X]\` — Pending + unblocked issues sorted by priority. **Start here.**
+- \`devdash ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
 - \`devdash list [--status=pending|in_progress|completed] [--since=X] [--parent=<id>]\` — All issues with optional filters.
 - \`devdash blocked\` — Pending issues with unsatisfied dependencies.
-- \`devdash show <id>\` — Full issue detail.
+- \`devdash show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
 - \`devdash stats\` — Project health: open/closed/blocked counts.
-- \`devdash stale [--since=X]\` — In-progress issues with no recent activity.
-- \`devdash comments <id>\` — List comments on an issue.
+- \`devdash stale [--since=X]\` — In-progress issues with no recent activity (stale > 30 min).
+- \`devdash comments <id>\` — List comments on an issue (chronological).
 - \`devdash activity [<id>]\` — Activity log for an issue or the whole project.
+
+\`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`.
 
 ### Creating & updating
 - \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>] [--due=YYYY-MM-DD] [--estimate=N]\`
-- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--due=YYYY-MM-DD] [--estimate=N]\`
-- \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\`
-- \`devdash delete <id> [--force] [--cascade]\`
-- \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."]\`
+- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."] [--due=YYYY-MM-DD] [--estimate=N]\`
+- \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Close one or many issues.
+- \`devdash delete <id> [--force] [--cascade]\` — Hard delete (\`--cascade\` deletes children too).
 - \`devdash comment <id> --body="..."\` — Add a comment to an issue.
-- \`devdash dep add <issue> <depends-on>\` — Add a dependency.
+
+### Dependencies
+- \`devdash dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
 - \`devdash dep remove <issue> <depends-on>\` — Remove a dependency.
+
+### Reporting & monitoring
+- \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."] [--files-changed=N] [--branch=name] [--commit=sha] [--error="..."]\` — Log agent progress. Fire-and-forget.
+- \`devdash stale [--since=X]\` — List in-progress issues with no recent activity.
+
+### Analysis & execution
+- \`devdash analyze <bead-id>\` — AI analysis of complexity, affected files, agent instructions.
+- \`devdash dispatch <bead-id> [--priority=N] [--worker=docker|e2b]\` — Dispatch as an agent job.
+- \`devdash diagnose <id>\` — Investigate bead: status, job history, failure details.
+- \`devdash score [<id>]\` — Score complexity/automability (single bead or bulk).
+
+### Jobs
+- \`devdash jobs [--bead=<id>]\` — List recent jobs (optionally filtered by bead).
+- \`devdash jobs show <id>\` — Job details + failure analysis.
+- \`devdash jobs log <id> [--tail=N]\` — Job output log (last N lines if specified).
+- \`devdash jobs failures [--bead=<id>]\` — Recent failed jobs.
+
+### Sync & maintenance
+- \`devdash sync\` — Trigger full reconcile with GitHub.
+- \`devdash import <num> | --all\` — Import GitHub issue(s) into the project.
+- \`devdash reconcile-tasks [--dry-run] [--auto-fix]\` — Audit backlog for stale/redundant tasks.
 
 ### IDs
 Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
 
 ### Priority
-0=critical, 1=high, 2=medium (default), 3=low, 4=backlog.
+0=critical, 1=high, 2=medium (default), 3=low, 4=backlog. Integers only.
 
 ### Cross-project
-\`DD_PROJECT_ID=<full-uuid> devdash <command>\`
+\`DD_PROJECT_ID=<full-uuid> devdash <command>\` — target a different project.
 INSTRUCTIONS
 }
 
