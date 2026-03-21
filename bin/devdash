@@ -581,14 +581,21 @@ dd_list() {
   pid=$(dd_project_id)
   local status_filter="" since_cutoff=""
 
+  local parent_filter=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --status=*) status_filter="${1#--status=}" ;;
       --since=*) since_cutoff=$(dd_parse_since "${1#--since=}") || exit 1 ;;
+      --parent=*) parent_filter="${1#--parent=}" ;;
       *) status_filter="${1#--status=}" ;;
     esac
     shift
   done
+
+  # Resolve parent prefix to full UUID
+  if [ -n "$parent_filter" ]; then
+    parent_filter=$(dd_resolve_id "$parent_filter" "$pid") || exit 1
+  fi
 
   local beads
   beads=$(dd_fetch_beads "$pid")
@@ -599,6 +606,10 @@ dd_list() {
 
   if [ -n "$since_cutoff" ]; then
     beads=$(echo "$beads" | jq --arg c "$since_cutoff" '[.[] | select(.updatedAt >= $c)]')
+  fi
+
+  if [ -n "$parent_filter" ]; then
+    beads=$(echo "$beads" | jq --arg p "$parent_filter" '[.[] | select(.parentBeadId == $p)]')
   fi
 
   echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" else "?" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
@@ -776,7 +787,7 @@ dd_diagnose() {
 dd_create() {
   local pid
   pid=$(dd_project_id)
-  local title="" type="task" priority=2 description="" parent=""
+  local title="" type="task" priority=2 description="" parent="" due="" estimate=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -785,6 +796,8 @@ dd_create() {
       --priority=*) priority="${1#--priority=}" ;;
       --description=*) description="${1#--description=}" ;;
       --parent=*) parent="${1#--parent=}" ;;
+      --due=*) due="${1#--due=}" ;;
+      --estimate=*) estimate="${1#--estimate=}" ;;
       *) title="$1" ;;
     esac
     shift
@@ -814,7 +827,12 @@ dd_create() {
     --argjson priority "$priority" \
     --arg beadType "$type" \
     --arg parentBeadId "$parent" \
-    '{projectId: $projectId, subject: $subject, description: $description, priority: $priority, beadType: $beadType} + (if $parentBeadId != "" then {parentBeadId: $parentBeadId} else {} end)')
+    --arg dueDate "$due" \
+    --arg estimatedMinutes "$estimate" \
+    '{projectId: $projectId, subject: $subject, description: $description, priority: $priority, beadType: $beadType}
+      + (if $parentBeadId != "" then {parentBeadId: $parentBeadId} else {} end)
+      + (if $dueDate != "" then {dueDate: $dueDate} else {} end)
+      + (if $estimatedMinutes != "" then {estimatedMinutes: ($estimatedMinutes | tonumber)} else {} end)')
 
   local result
   result=$(dd_api POST "/beads" -d "$body")
@@ -856,6 +874,8 @@ dd_update() {
         parent_uuid=$(dd_resolve_id "${1#--parent=}" "$pid") || exit 1
         body=$(echo "$body" | jq --arg v "$parent_uuid" '. + {parentBeadId: $v}')
         ;;
+      --due=*) body=$(echo "$body" | jq --arg v "${1#--due=}" '. + {dueDate: $v}') ;;
+      --estimate=*) body=$(echo "$body" | jq --arg v "${1#--estimate=}" '. + {estimatedMinutes: ($v | tonumber)}') ;;
     esac
     shift
   done
@@ -1052,37 +1072,118 @@ dd_delete() {
 }
 
 dd_dep_add() {
-  local issue="$1" depends_on="$2"
+  local issue="${1:-}" depends_on="${2:-}"
+  if [ -z "$issue" ] || [ -z "$depends_on" ]; then
+    echo "Usage: devdash dep add <issue> <depends-on>" >&2
+    exit "$DD_EXIT_USER"
+  fi
   local pid
   pid=$(dd_project_id)
 
-  # Fetch beads once, reuse for both resolves and dependency lookup
-  local all_beads
-  all_beads=$(dd_fetch_beads "$pid")
+  local issue_uuid dep_uuid
+  issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
+  dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+
+  local body
+  body=$(jq -n --arg pid "$pid" --arg dep "$dep_uuid" '{projectId: $pid, blockedBy: $dep}')
+  dd_api POST "/beads/${issue_uuid}/dependencies" -d "$body" > /dev/null
+  echo "Added dependency: ${issue} depends on ${depends_on}"
+}
+
+dd_dep_remove() {
+  local issue="${1:-}" depends_on="${2:-}"
+  if [ -z "$issue" ] || [ -z "$depends_on" ]; then
+    echo "Usage: devdash dep remove <issue> <depends-on>" >&2
+    exit "$DD_EXIT_USER"
+  fi
+  local pid
+  pid=$(dd_project_id)
 
   local issue_uuid dep_uuid
-  issue_uuid=$(dd_resolve_id "$issue" "$pid" "$all_beads") || exit 1
-  dep_uuid=$(dd_resolve_id "$depends_on" "$pid" "$all_beads") || exit 1
+  issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
+  dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
 
-  # Get current blockedBy for the issue
-  local current
-  current=$(echo "$all_beads" | jq --arg id "$issue_uuid" '.[] | select(.id == $id)')
-  local blocked_by
-  blocked_by=$(echo "$current" | jq -c --arg dep "$dep_uuid" '.blockedBy + [$dep] | unique')
+  dd_api DELETE "/beads/${issue_uuid}/dependencies/${dep_uuid}?projectId=${pid}" > /dev/null
+  echo "Removed dependency: ${issue} no longer depends on ${depends_on}"
+}
 
-  # Get current blocks for the dependency
-  local dep_current
-  dep_current=$(echo "$all_beads" | jq --arg id "$dep_uuid" '.[] | select(.id == $id)')
-  local blocks
-  blocks=$(echo "$dep_current" | jq -c --arg id "$issue_uuid" '.blocks + [$id] | unique')
+dd_comment() {
+  local bead_id="${1:-}"
+  if [ -n "$bead_id" ]; then shift; fi
+  local pid
+  pid=$(dd_project_id)
 
-  # Update both
-  local issue_body blocks_body
-  issue_body=$(jq -n --arg pid "$pid" --argjson bb "$blocked_by" '{projectId: $pid, blockedBy: $bb}')
-  blocks_body=$(jq -n --arg pid "$pid" --argjson bl "$blocks" '{projectId: $pid, blocks: $bl}')
-  dd_api PATCH "/beads/${issue_uuid}" -d "$issue_body" > /dev/null
-  dd_api PATCH "/beads/${dep_uuid}" -d "$blocks_body" > /dev/null
-  echo "Added dependency: ${issue} depends on ${depends_on}"
+  if [ -z "$bead_id" ]; then
+    echo "Usage: devdash comment <bead-id> --body=\"...\"" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local uuid
+  uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
+
+  local body_text=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --body=*) body_text="${1#--body=}" ;;
+      *) body_text="$1" ;;
+    esac
+    shift
+  done
+
+  if [ -z "$body_text" ]; then
+    echo "Usage: devdash comment <bead-id> --body=\"...\"" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local body
+  body=$(jq -n --arg pid "$pid" --arg content "$body_text" '{projectId: $pid, content: $content}')
+  dd_api POST "/beads/${uuid}/comments" -d "$body" > /dev/null
+  echo "Comment added to ${uuid}"
+}
+
+dd_comments() {
+  local bead_id="${1:-}"
+  if [ -z "$bead_id" ]; then
+    echo "Usage: devdash comments <bead-id>" >&2
+    exit "$DD_EXIT_USER"
+  fi
+  local pid
+  pid=$(dd_project_id)
+  local uuid
+  uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
+
+  local result
+  result=$(dd_api GET "/beads/${uuid}/comments?projectId=${pid}")
+
+  echo "$result" | jq -r '.data[] | "[\(.createdAt)] \(.authorType)\(if .author.displayName then " (\(.author.displayName))" else "" end):\n  \(.content)\n"'
+}
+
+dd_activity() {
+  local bead_id="${1:-}"
+  local pid
+  pid=$(dd_project_id)
+  local limit=20
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --limit=*) limit="${1#--limit=}" ;;
+      *) bead_id="$1" ;;
+    esac
+    shift
+  done
+
+  local url="/projects/${pid}/activity?limit=${limit}"
+
+  if [ -n "$bead_id" ]; then
+    local uuid
+    uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
+    url="${url}&targetId=${uuid}"
+  fi
+
+  local result
+  result=$(dd_api GET "$url")
+
+  echo "$result" | jq -r '.data[] | "[\(.createdAt)] \(.action) by \(.actorType)\(if .actor.displayName then " (\(.actor.displayName))" else "" end)\(if .artifactName then " — \(.artifactName)" else "" end)\(if .metadata then " " + (.metadata | tostring) else "" end)"'
 }
 
 dd_stats() {
@@ -2183,16 +2284,19 @@ $(if [ "$close_gate" = "commit" ]; then
 
 ### Viewing issues
 - \`${dd_cmd} ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
-- \`${dd_cmd} list [--status=pending|in_progress|completed] [--since=X]\` — All issues, optionally filtered by status and/or time.
+- \`${dd_cmd} list [--status=pending|in_progress|completed] [--since=X] [--parent=<id>]\` — All issues, optionally filtered by status, time, or parent.
 - \`${dd_cmd} blocked\` — Pending issues with unsatisfied dependencies.
 - \`${dd_cmd} show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
 - \`${dd_cmd} stats\` — Project health: open/closed/blocked counts.
+- \`${dd_cmd} comments <id>\` — List comments on an issue.
+- \`${dd_cmd} activity [<id>]\` — Activity log for an issue or the whole project.
 
 \`--since\` accepts: \`Nh\` (hours), \`Nd\` (days), \`Nw\` (weeks), or \`YYYY-MM-DD\`. Filters on updatedAt (list/stale) or createdAt (ready).
 
 ### Creating & updating
-- \`${dd_cmd} create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>]\`
-- \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."]\`
+- \`${dd_cmd} create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>] [--due=YYYY-MM-DD] [--estimate=N]\`
+- \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."] [--due=YYYY-MM-DD] [--estimate=N]\`
+- \`${dd_cmd} comment <id> --body="..."\` — Add a comment to an issue.
 - \`${dd_cmd} close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`${dd_cmd} delete <id> [--force] [--cascade]\`
 
@@ -2209,6 +2313,7 @@ Good: \`--description="Create Express MCP server proxying dev-dash API. OAuth vi
 
 ### Dependencies
 - \`${dd_cmd} dep add <issue> <depends-on>\` — Issue is blocked until depends-on completes.
+- \`${dd_cmd} dep remove <issue> <depends-on>\` — Remove a dependency.
 
 ### Jobs
 - \`${dd_cmd} jobs [--bead=<id>]\` — List recent jobs (optionally filtered by bead)
@@ -2296,7 +2401,7 @@ GOOD: Create parent issue "Build MCP server", then child issues:
 Each child gets its own commit, report, and close summary. The parent gets closed last with an overall summary.
 
 ### Bead relationships
-Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`), and siblings (other children of the same parent).
+Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`/\`dep remove\`), and siblings (other children of the same parent).
 
 **Before starting work**, run \`${dd_cmd} show <id>\` and check:
 - **parentBeadId**: If set, \`${dd_cmd} show <parent-id>\` to understand the larger goal. Sibling beads (other children of that parent) may contain related context, prior decisions, or work you should build on.
@@ -2306,7 +2411,7 @@ Issues can have **parents** (\`--parent=<id>\`), **dependencies** (\`dep add\`),
 
 **When to create relationships**:
 - Use \`--parent=<id>\` when breaking a large issue into sub-tasks.
-- Use \`dep add\` when one issue must complete before another can start.
+- Use \`dep add\` when one issue must complete before another can start (\`dep remove\` to undo).
 - Prefer parent/child for "parts of a whole"; prefer dependencies for "X must happen before Y."
 PRIME
 }
@@ -2458,19 +2563,23 @@ Issues:
 
 ### Viewing issues
 - \`devdash ready [--since=X]\` — Pending + unblocked issues sorted by priority. **Start here.**
-- \`devdash list [--status=pending|in_progress|completed] [--since=X]\` — All issues with optional filters.
+- \`devdash list [--status=pending|in_progress|completed] [--since=X] [--parent=<id>]\` — All issues with optional filters.
 - \`devdash blocked\` — Pending issues with unsatisfied dependencies.
 - \`devdash show <id>\` — Full issue detail.
 - \`devdash stats\` — Project health: open/closed/blocked counts.
 - \`devdash stale [--since=X]\` — In-progress issues with no recent activity.
+- \`devdash comments <id>\` — List comments on an issue.
+- \`devdash activity [<id>]\` — Activity log for an issue or the whole project.
 
 ### Creating & updating
-- \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>]\`
-- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4]\`
+- \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>] [--due=YYYY-MM-DD] [--estimate=N]\`
+- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--due=YYYY-MM-DD] [--estimate=N]\`
 - \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\`
 - \`devdash delete <id> [--force] [--cascade]\`
 - \`devdash report <id> --status=code_complete|committed|pushed|error [--summary="..."]\`
-- \`devdash dep add <issue> <depends-on>\`
+- \`devdash comment <id> --body="..."\` — Add a comment to an issue.
+- \`devdash dep add <issue> <depends-on>\` — Add a dependency.
+- \`devdash dep remove <issue> <depends-on>\` — Remove a dependency.
 
 ### IDs
 Full UUID, UUID prefix (e.g. \`27bf\`), or local ID (\`dev-dash-42\`).
@@ -2920,14 +3029,19 @@ Commands:
   project delete <id>    Delete a project (--force to skip confirmation)
   list [--status=X]      List beads (optional status filter)
        [--since=X]       Filter by time: Nh (hours), Nd (days), Nw (weeks), YYYY-MM-DD
+       [--parent=<id>]   Filter by parent bead
   ready [--since=X]      Show beads ready to work (no blockers)
   blocked                Show blocked issues with their blockers
   show <id>              Show bead details
-  create --title="..."   Create a bead (--type, --priority, --description, --parent)
+  create --title="..."   Create a bead (--type, --priority, --description, --parent,
+                         --due=YYYY-MM-DD, --estimate=N)
   update <id> --key=val  Update bead fields (--status, --priority, --owner, --title,
-                         --description, --pre-instructions)
+                         --description, --pre-instructions, --due, --estimate)
   close <id> [<id>...]   Close one or more beads
                          (--pr=URL, --commit=SHA, --summary="...")
+  comment <id> --body="..." Add a comment to a bead
+  comments <id>          List comments on a bead
+  activity [<id>]        Activity log (per-bead or project-wide)
   stale [--since=X]      List stale in-progress issues (no recent activity)
   report <id>            Submit agent exit report
                          (--status=code_complete|committed|pushed|error,
@@ -2938,6 +3052,7 @@ Commands:
   dispatch <bead-id>     Dispatch a bead as an agent job (--priority, --worker)
   diagnose <id>          Investigate bead: status, job history, failure details
   dep add <id> <dep-id>  Add dependency (id depends on dep-id)
+  dep remove <id> <dep-id> Remove a dependency
   jobs [list] [--bead=<id>]
                          List recent jobs (optionally filtered by bead)
   jobs show <id>         Show job details + failure analysis
@@ -3060,11 +3175,15 @@ case "${1:-help}" in
   delete)  shift; dd_delete "$@" ;;
   analyze)  shift; dd_analyze "$@" ;;
   dispatch) shift; dd_dispatch "$@" ;;
+  comment)  shift; dd_comment "$@" ;;
+  comments) shift; dd_comments "$@" ;;
+  activity) shift; dd_activity "$@" ;;
   dep)
     shift
     case "${1:-}" in
       add) shift; dd_dep_add "$@" ;;
-      *) echo "Usage: devdash dep add <issue> <depends-on>" >&2; exit "$DD_EXIT_USER" ;;
+      remove) shift; dd_dep_remove "$@" ;;
+      *) echo "Usage: devdash dep [add|remove] <issue> <depends-on>" >&2; exit "$DD_EXIT_USER" ;;
     esac
     ;;
   score)    shift; dd_score "$@" ;;
