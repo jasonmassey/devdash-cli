@@ -918,10 +918,25 @@ dd_close() {
   local pid
   pid=$(dd_project_id)
 
+  # Pre-fetch beads once for ID resolution (avoids N fetches)
+  local cached_beads
+  cached_beads=$(dd_fetch_beads "$pid")
+
+  # Resolve all IDs upfront
+  local uuids=()
   for bead_id in "${bead_ids[@]}"; do
     local uuid
-    uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
+    uuid=$(dd_resolve_id "$bead_id" "$pid" "$cached_beads") || { echo "Skipping: $bead_id" >&2; continue; }
+    uuids+=("$uuid")
+  done
 
+  if [ ${#uuids[@]} -eq 0 ]; then
+    echo "No valid beads to close" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  # Single bead: use individual PATCH (simpler, same as before)
+  if [ ${#uuids[@]} -eq 1 ]; then
     local body
     if [ -n "$completion_result" ]; then
       body=$(jq -n \
@@ -931,10 +946,40 @@ dd_close() {
     else
       body=$(jq -n --arg pid "$pid" '{projectId: $pid, status: "completed"}')
     fi
+    dd_api PATCH "/beads/${uuids[0]}" -d "$body" > /dev/null
+    echo "Closed: ${uuids[0]}"
+    return
+  fi
 
-    dd_api PATCH "/beads/${uuid}" -d "$body" > /dev/null
-    echo "Closed: ${uuid}"
+  # Multiple beads: use bulk/close endpoint (single API call)
+  local beads_json="[]"
+  for uuid in "${uuids[@]}"; do
+    if [ -n "$completion_result" ]; then
+      beads_json=$(echo "$beads_json" | jq --arg id "$uuid" --argjson cr "$completion_result" \
+        '. + [{id: $id} + $cr]')
+    else
+      beads_json=$(echo "$beads_json" | jq --arg id "$uuid" '. + [{id: $id}]')
+    fi
   done
+
+  local body
+  body=$(jq -n --arg pid "$pid" --argjson beads "$beads_json" \
+    '{projectId: $pid, beads: $beads}')
+
+  local result
+  result=$(dd_api POST "/beads/bulk/close" -d "$body")
+
+  # Parse and display results
+  local succeeded failed
+  succeeded=$(echo "$result" | jq -r '.summary.succeeded // 0')
+  failed=$(echo "$result" | jq -r '.summary.failed // 0')
+
+  # Show individual results
+  echo "$result" | jq -r '.results[] | if .success then "Closed: \(.id)" else "Failed: \(.id) — \(.error // "unknown error")" end'
+
+  if [ "$failed" -gt 0 ]; then
+    echo "Summary: ${succeeded} closed, ${failed} failed" >&2
+  fi
 }
 
 dd_stale() {
