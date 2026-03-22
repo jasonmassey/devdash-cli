@@ -592,13 +592,13 @@ dd_list() {
     shift
   done
 
-  # Resolve parent prefix to full UUID
-  if [ -n "$parent_filter" ]; then
-    parent_filter=$(dd_resolve_id "$parent_filter" "$pid") || exit 1
-  fi
-
   local beads
   beads=$(dd_fetch_beads "$pid")
+
+  # Resolve parent prefix to full UUID (reuse already-fetched beads)
+  if [ -n "$parent_filter" ]; then
+    parent_filter=$(dd_resolve_id "$parent_filter" "$pid" "$beads") || exit 1
+  fi
 
   if [ -n "$status_filter" ]; then
     beads=$(echo "$beads" | jq --arg s "$status_filter" '[.[] | select(.status == $s)]')
@@ -1089,9 +1089,14 @@ dd_delete() {
 
   local pid
   pid=$(dd_project_id)
+
+  # Pre-fetch beads once for ID resolution (avoids N fetches)
+  local cached_beads
+  cached_beads=$(dd_fetch_beads "$pid")
+
   for bead_id in "${bead_ids[@]}"; do
     local uuid
-    uuid=$(dd_resolve_id "$bead_id" "$pid") || { echo "Skipping: $bead_id" >&2; continue; }
+    uuid=$(dd_resolve_id "$bead_id" "$pid" "$cached_beads") || { echo "Skipping: $bead_id" >&2; continue; }
 
     if [ "$force" != true ]; then
       local bead subject
@@ -1125,14 +1130,18 @@ dd_dep_add() {
   local pid
   pid=$(dd_project_id)
 
+  # Pre-fetch beads once for both resolutions
+  local cached_beads
+  cached_beads=$(dd_fetch_beads "$pid")
+
   local issue_uuid dep_uuid
-  issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
+  issue_uuid=$(dd_resolve_id "$issue" "$pid" "$cached_beads") || exit 1
   # For the blocker: if it's a full UUID, pass through directly (supports cross-project deps).
   # Only resolve within current project if it's a short prefix or local ID.
   if [[ ${#depends_on} -eq 36 && "$depends_on" == *-*-*-*-* ]]; then
     dep_uuid="$depends_on"
   else
-    dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+    dep_uuid=$(dd_resolve_id "$depends_on" "$pid" "$cached_beads") || exit 1
   fi
 
   local body
@@ -1150,13 +1159,17 @@ dd_dep_remove() {
   local pid
   pid=$(dd_project_id)
 
+  # Pre-fetch beads once for both resolutions
+  local cached_beads
+  cached_beads=$(dd_fetch_beads "$pid")
+
   local issue_uuid dep_uuid
-  issue_uuid=$(dd_resolve_id "$issue" "$pid") || exit 1
+  issue_uuid=$(dd_resolve_id "$issue" "$pid" "$cached_beads") || exit 1
   # Same cross-project passthrough as dep add
   if [[ ${#depends_on} -eq 36 && "$depends_on" == *-*-*-*-* ]]; then
     dep_uuid="$depends_on"
   else
-    dep_uuid=$(dd_resolve_id "$depends_on" "$pid") || exit 1
+    dep_uuid=$(dd_resolve_id "$depends_on" "$pid" "$cached_beads") || exit 1
   fi
 
   dd_api DELETE "/beads/${issue_uuid}/dependencies/${dep_uuid}?projectId=${pid}" > /dev/null
