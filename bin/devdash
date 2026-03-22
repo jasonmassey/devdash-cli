@@ -661,7 +661,7 @@ dd_show() {
     description: .description,
     status: .status,
     priority: .priority,
-    owner: .owner,
+    assignedTo: .assignedTo,
     beadType: .beadType,
     parentBeadId: .parentBeadId,
     blockedBy: .blockedBy,
@@ -865,7 +865,7 @@ dd_update() {
         fi
         body=$(echo "$body" | jq --argjson v "$pval" '. + {priority: $v}')
         ;;
-      --owner=*) body=$(echo "$body" | jq --arg v "${1#--owner=}" '. + {owner: $v}') ;;
+      --owner=*) body=$(echo "$body" | jq --arg v "${1#--owner=}" '. + {assignedTo: $v}') ;;
       --title=*) body=$(echo "$body" | jq --arg v "${1#--title=}" '. + {subject: $v}') ;;
       --description=*) body=$(echo "$body" | jq --arg v "${1#--description=}" '. + {description: $v}') ;;
       --pre-instructions=*) body=$(echo "$body" | jq --arg v "${1#--pre-instructions=}" '. + {preInstructions: $v}') ;;
@@ -2351,7 +2351,7 @@ $(if [ "$close_gate" = "commit" ]; then
 
 ### Creating & updating
 - \`${dd_cmd} create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>] [--due=YYYY-MM-DD] [--estimate=N]\`
-- \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."] [--due=YYYY-MM-DD] [--estimate=N]\`
+- \`${dd_cmd} update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=email] [--parent=<id>] [--pre-instructions="..."] [--due=YYYY-MM-DD] [--estimate=N]\`
 - \`${dd_cmd} comment <id> --body="..."\` — Add a comment to an issue.
 - \`${dd_cmd} close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Mark one or many issues completed, optionally with completion metadata.
 - \`${dd_cmd} delete <id> [--force] [--cascade]\`
@@ -2659,7 +2659,7 @@ Issues:
 
 ### Creating & updating
 - \`devdash create --title="..." --description="..." [--type=task|bug|feature|enhancement] [--priority=0-4] [--parent=<id>] [--due=YYYY-MM-DD] [--estimate=N]\`
-- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=name] [--parent=<id>] [--pre-instructions="..."] [--due=YYYY-MM-DD] [--estimate=N]\`
+- \`devdash update <id> [--status=pending|in_progress] [--title="..."] [--description="..."] [--priority=0-4] [--owner=email] [--parent=<id>] [--pre-instructions="..."] [--due=YYYY-MM-DD] [--estimate=N]\`
 - \`devdash close <id> [<id>...] [--pr=URL] [--commit=SHA] [--summary="..."]\` — Close one or many issues.
 - \`devdash delete <id> [--force] [--cascade]\` — Hard delete (\`--cascade\` deletes children too).
 - \`devdash comment <id> --body="..."\` — Add a comment to an issue.
@@ -3215,7 +3215,7 @@ Flag values (exact strings the CLI accepts):
   --project=<id>         Full UUID, short prefix, or DD_PROJECT_ID env var
 
   create flags:          --title="..." --type=task --priority=2 --description="..." --parent=<id>
-  update flags:          --status=in_progress --priority=1 --owner=name --title="..."
+  update flags:          --status=in_progress --priority=1 --owner=email --title="..."
                          --description="..." --pre-instructions="..."
   close flags:           --pr=URL --commit=SHA --summary="..." (completion metadata)
   delete flags:          --force (skip confirmation) --cascade (delete children)
