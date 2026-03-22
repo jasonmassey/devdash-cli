@@ -683,6 +683,65 @@ dd_show() {
     } else {} end)'
 }
 
+dd_find() {
+  if [ -z "${1:-}" ]; then
+    echo "Usage: devdash find <bead-uuid>" >&2
+    echo "Look up a bead across all accessible projects (full UUID required)." >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local bead_id="$1"
+
+  # Require full UUID format
+  if [[ ${#bead_id} -ne 36 || "$bead_id" != *-*-*-*-* ]]; then
+    echo "Error: devdash find requires a full UUID (prefix lookup not supported across projects)." >&2
+    echo "Hint: use 'devdash show <prefix>' within a specific project instead." >&2
+    exit "$DD_EXIT_USER"
+  fi
+
+  local bead
+  bead=$(dd_api GET "/beads/${bead_id}") || exit 1
+
+  # Get project name for context
+  local project_id project_name
+  project_id=$(echo "$bead" | dd_jq -r '.projectId // empty')
+  if [ -n "$project_id" ]; then
+    local project_info
+    project_info=$(dd_api GET "/projects" 2>/dev/null) || true
+    project_name=$(echo "$project_info" | dd_jq -r --arg pid "$project_id" '.[] | select(.id == $pid) | .name // empty' 2>/dev/null)
+  fi
+
+  echo "$bead" | jq --arg pname "${project_name:-unknown}" '{
+    id: .id,
+    projectId: .projectId,
+    projectName: $pname,
+    localId: .localBeadId,
+    subject: .subject,
+    description: .description,
+    status: .status,
+    priority: .priority,
+    assignedTo: .assignedTo,
+    beadType: .beadType,
+    parentBeadId: .parentBeadId,
+    blockedBy: .blockedBy,
+    blocks: .blocks,
+    preInstructions: .preInstructions,
+    completionResult: .completionResult,
+    createdAt: .createdAt,
+    updatedAt: .updatedAt
+  }
+  + (if .staleSince != null then {staleSince: .staleSince, staleMinutes: .staleMinutes} else {} end)
+  + (if .automabilityGrade != null then {
+      burnIntelligence: {
+        complexityScore: .complexityScore,
+        automabilityScore: .automabilityScore,
+        automabilityGrade: .automabilityGrade,
+        factors: .burnScores,
+        scoredAt: .burnScoredAt
+      }
+    } else {} end)'
+}
+
 dd_score() {
   local pid
   pid=$(dd_project_id)
@@ -2356,6 +2415,7 @@ $(if [ "$close_gate" = "commit" ]; then
 - \`${dd_cmd} list [--status=pending|in_progress|completed] [--since=X] [--parent=<id>]\` — All issues, optionally filtered by status, time, or parent.
 - \`${dd_cmd} blocked\` — Pending issues with unsatisfied dependencies.
 - \`${dd_cmd} show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
+- \`${dd_cmd} find <uuid>\` — Look up a bead by full UUID across all accessible projects. Returns bead with project context.
 - \`${dd_cmd} stats\` — Project health: open/closed/blocked counts.
 - \`${dd_cmd} comments <id>\` — List comments on an issue.
 - \`${dd_cmd} activity [<id>]\` — Activity log for an issue or the whole project.
@@ -2663,6 +2723,7 @@ Issues:
 - \`devdash list [--status=pending|in_progress|completed] [--since=X] [--parent=<id>]\` — All issues with optional filters.
 - \`devdash blocked\` — Pending issues with unsatisfied dependencies.
 - \`devdash show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
+- \`devdash find <uuid>\` — Look up a bead by full UUID across all accessible projects.
 - \`devdash stats\` — Project health: open/closed/blocked counts.
 - \`devdash stale [--since=X]\` — In-progress issues with no recent activity (stale > 30 min).
 - \`devdash comments <id>\` — List comments on an issue (chronological).
@@ -3162,6 +3223,7 @@ Commands:
   ready [--since=X]      Show beads ready to work (no blockers)
   blocked                Show blocked issues with their blockers
   show <id>              Show bead details
+  find <uuid>            Look up a bead across all projects (full UUID required)
   create --title="..."   Create a bead (--type, --priority, --description, --parent,
                          --due=YYYY-MM-DD, --estimate=N)
   update <id> --key=val  Update bead fields (--status, --priority, --owner, --title,
@@ -3296,6 +3358,7 @@ case "${1:-help}" in
   ready)   shift; dd_ready "$@" ;;
   blocked) dd_blocked ;;
   show)    shift; dd_show "$@" ;;
+  find)    shift; dd_find "$@" ;;
   create)  shift; dd_create "$@" ;;
   update)  shift; dd_update "$@" ;;
   close)   shift; dd_close "$@" ;;
