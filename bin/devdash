@@ -1344,6 +1344,32 @@ dd_stats() {
   echo "Ready:       ${ready}"
 }
 
+dd_team() {
+  local pid
+  pid=$(dd_project_id)
+
+  local result
+  result=$(dd_api GET "/projects/${pid}/members?format=compact")
+
+  # Get project name
+  local pname
+  pname=$(dd_api GET "/projects/${pid}" | jq -r '.name // "unknown"' 2>/dev/null)
+
+  echo "Team (${pname})"
+
+  # Print roster
+  echo "$result" | jq -r '.roster[] | "  \(.name)\t@\(.username)\t\(.email)\t\(.role)"' 2>/dev/null | column -t -s $'\t'
+
+  # Print pending invitations
+  local pending
+  pending=$(echo "$result" | jq -r '.pending[]' 2>/dev/null)
+  if [ -n "$pending" ]; then
+    while IFS= read -r email; do
+      echo "  ${email}  pending"
+    done <<< "$pending"
+  fi
+}
+
 dd_jobs() {
   local pid
   pid=$(dd_project_id)
@@ -2355,6 +2381,30 @@ ${a_summary}
       fi
     fi
 
+    # Fetch team roster for this project
+    if [ -n "$pid" ]; then
+      local roster_json
+      roster_json=$(dd_api GET "/projects/${pid}/members?format=compact" 2>/dev/null) || true
+      if [ -n "$roster_json" ]; then
+        local roster_rows=""
+        roster_rows=$(echo "$roster_json" | jq -r '.roster[] | "| \(.name) | \(.username) | \(.email) | \(.role) |"' 2>/dev/null)
+        local pending_rows=""
+        pending_rows=$(echo "$roster_json" | jq -r '.pending[] | "| (pending) | — | \(.) | invited |"' 2>/dev/null)
+        if [ -n "$roster_rows" ] || [ -n "$pending_rows" ]; then
+          project_header="${project_header}
+
+## Team
+
+| Name | Username | Email | Role |
+|------|----------|-------|------|
+${roster_rows}${pending_rows:+
+${pending_rows}}
+
+Assign with: \`${dd_cmd} update <id> --owner=<email-or-name>\`"
+        fi
+      fi
+    fi
+
     # Fetch all projects for cross-repo reference table
     local all_projects
     all_projects=$(dd_api GET "/projects" 2>/dev/null) || true
@@ -3253,6 +3303,7 @@ Commands:
                          Show recent failed jobs (optionally filtered by bead)
   reconcile-tasks        Audit backlog for stale/redundant/completed tasks
                          (--dry-run (default), --auto-fix, --json)
+  team                   Show project team roster (members + pending invitations)
   stats                  Show project statistics
   sync                   Trigger full reconcile with GitHub
   import <num> | --all   Import GitHub issue(s) into the current project
@@ -3382,6 +3433,7 @@ case "${1:-help}" in
   diagnose) shift; dd_diagnose "$@" ;;
   jobs)    shift; dd_jobs "$@" ;;
   reconcile-tasks) shift; dd_reconcile_tasks "$@" ;;
+  team)    dd_team ;;
   stats)   dd_stats ;;
   sync)    dd_sync ;;
   import)  shift; dd_import "$@" ;;
