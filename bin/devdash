@@ -2386,11 +2386,23 @@ ${a_summary}
       local roster_json
       roster_json=$(dd_api GET "/projects/${pid}/members?format=compact" 2>/dev/null) || true
       if [ -n "$roster_json" ]; then
+        local roster_count pending_count
+        roster_count=$(echo "$roster_json" | jq '.roster | length' 2>/dev/null)
+        pending_count=$(echo "$roster_json" | jq '.pending | length' 2>/dev/null)
+        local total_members=$(( ${roster_count:-0} + ${pending_count:-0} ))
         local roster_rows=""
-        roster_rows=$(echo "$roster_json" | jq -r '.roster[] | "| \(.name) | \(.username) | \(.email) | \(.role) |"' 2>/dev/null)
+        roster_rows=$(echo "$roster_json" | jq -r '.roster[:20][] | "| \(.name) | \(.username) | \(.email) | \(.role) |"' 2>/dev/null)
+        local pending_slots=$(( 20 - ${roster_count:-0} ))
         local pending_rows=""
-        pending_rows=$(echo "$roster_json" | jq -r '.pending[] | "| (pending) | — | \(.) | invited |"' 2>/dev/null)
+        if [ "$pending_slots" -gt 0 ]; then
+          pending_rows=$(echo "$roster_json" | jq -r ".pending[:${pending_slots}][] | \"| (pending) | — | \(.) | invited |\"" 2>/dev/null)
+        fi
         if [ -n "$roster_rows" ] || [ -n "$pending_rows" ]; then
+          local truncation_note=""
+          if [ "$total_members" -gt 20 ]; then
+            truncation_note="
+*Showing 20 of ${total_members} members. Run \`${dd_cmd} team\` for full roster.*"
+          fi
           project_header="${project_header}
 
 ## Team
@@ -2398,7 +2410,7 @@ ${a_summary}
 | Name | Username | Email | Role |
 |------|----------|-------|------|
 ${roster_rows}${pending_rows:+
-${pending_rows}}
+${pending_rows}}${truncation_note}
 
 Assign with: \`${dd_cmd} update <id> --owner=<email-or-name>\`"
         fi
