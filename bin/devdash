@@ -2672,7 +2672,8 @@ CUSTOM
 - Run `devdash prime` at the start of every new session. Run it again after any handoff, compaction, or context-loss event.
 - If the user already named a specific devdash issue, follow `devdash prime` with `devdash show <id>` and `devdash update <id> --status=in_progress` instead of `devdash ready`.
 - Use `devdash ready` only when the user has not already chosen the task.
-- Use `devdash --help` when you need to confirm command syntax, capabilities, or supported workflow.
+- For command discovery, prefer `devdash help` and topic help commands such as `devdash help cli` before probing subcommands with `--help`.
+- Use `devdash --help` when you need command syntax, capabilities, or supported workflow and a topic help entry is not enough.
 - Minimize redundant startup work after `devdash prime`. Don't run broad repo scans or repeated discovery commands unless the current request needs them.
 - Read only the context needed for the current request. Prefer targeted repo reads (`rg`, `rg --files`, `sed`, `git status --short`) over whole-repo exploration when the task is narrow.
 - Avoid commands whose only purpose is to reconfirm information already present in the prompt, local instructions, or recent command output.

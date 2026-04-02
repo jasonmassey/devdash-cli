@@ -75,6 +75,11 @@ if grep -qF "Before each commit, confirm that the commit maps to exactly one dev
 else
   fail "codex config contains commit guidance"
 fi
+if grep -qF 'For command discovery, prefer `devdash help` and topic help commands such as `devdash help cli` before probing subcommands with `--help`.' "${_agent_dir}/AGENTS.md" 2>/dev/null; then
+  pass "codex config contains help-discovery guidance"
+else
+  fail "codex config contains help-discovery guidance"
+fi
 if grep -qF "Run the narrowest verification that meaningfully covers the change, then summarize the result for the user." "${_agent_dir}/AGENTS.md" 2>/dev/null; then
   pass "codex config contains verification guidance"
 else
