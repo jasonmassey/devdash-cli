@@ -99,6 +99,27 @@ setup_api_test
 assert_exit "create without title exits 1" 1 run_dd create
 teardown_api_test
 
+# create help does not call API
+setup_api_test
+output=$(run_dd create --help 2>&1) || true
+assert_contains "create --help prints usage" 'Usage: devdash create --title="..."' echo "$output"
+if [ ! -s "$MOCK_CURL_LOG" ]; then
+  pass "create --help skips API call"
+else
+  fail "create --help skips API call"
+fi
+teardown_api_test
+
+setup_api_test
+output=$(run_dd create -h 2>&1) || true
+assert_contains "create -h prints usage" 'Usage: devdash create --title="..."' echo "$output"
+if [ ! -s "$MOCK_CURL_LOG" ]; then
+  pass "create -h skips API call"
+else
+  fail "create -h skips API call"
+fi
+teardown_api_test
+
 # ── update ───────────────────────────────────────────
 echo "-- update --"
 setup_api_test

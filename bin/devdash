@@ -847,9 +847,14 @@ dd_create() {
   local pid
   pid=$(dd_project_id)
   local title="" type="task" priority=2 description="" parent="" due="" estimate=""
+  local usage='Usage: devdash create --title="..." [--type=task|bug|feature] [--priority=0-4] [--description="..."]'
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --help|-h)
+        echo "$usage"
+        return 0
+        ;;
       --title=*) title="${1#--title=}" ;;
       --type=*) type="${1#--type=}" ;;
       --priority=*) priority="${1#--priority=}" ;;
@@ -863,7 +868,7 @@ dd_create() {
   done
 
   if [ -z "$title" ]; then
-    echo "Usage: devdash create --title=\"...\" [--type=task|bug|feature] [--priority=0-4] [--description=\"...\"]" >&2
+    echo "$usage" >&2
     exit "$DD_EXIT_USER"
   fi
 

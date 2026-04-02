@@ -130,6 +130,11 @@ assert_exit "create --priority=-1 exits 1" 1 \
 
 rm -rf "$_pv_dir" "$_pv_config"
 
+# ── Create help ─────────────────────────────────────
+echo "-- create help --"
+assert_contains "create --help shows usage" 'Usage: devdash create --title="..."' "$DEVDASH" create --help
+assert_contains "create -h shows usage" 'Usage: devdash create --title="..."' "$DEVDASH" create -h
+
 # ── HTTPS enforcement ──────────────────────────────
 echo "-- HTTPS enforcement --"
 _https_dir="$(mktemp -d)"
