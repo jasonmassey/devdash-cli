@@ -862,6 +862,16 @@ dd_create() {
       --parent=*) parent="${1#--parent=}" ;;
       --due=*) due="${1#--due=}" ;;
       --estimate=*) estimate="${1#--estimate=}" ;;
+      --*)
+        echo "Error: unknown flag for create: $1" >&2
+        echo "$usage" >&2
+        exit "$DD_EXIT_USER"
+        ;;
+      -*)
+        echo "Error: title cannot start with '-': $1" >&2
+        echo "Use --title=\"...\" for titles that might look like flags." >&2
+        exit "$DD_EXIT_USER"
+        ;;
       *) title="$1" ;;
     esac
     shift

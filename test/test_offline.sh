@@ -134,6 +134,10 @@ rm -rf "$_pv_dir" "$_pv_config"
 echo "-- create help --"
 assert_contains "create --help shows usage" 'Usage: devdash create --title="..."' "$DEVDASH" create --help
 assert_contains "create -h shows usage" 'Usage: devdash create --title="..."' "$DEVDASH" create -h
+assert_exit "create unknown flag exits 1" 1 "$DEVDASH" create --bogus
+assert_contains "create unknown flag shows error" "unknown flag for create" "$DEVDASH" create --bogus
+assert_exit "create dash-prefixed title exits 1" 1 "$DEVDASH" create -urgent
+assert_contains "create dash-prefixed title shows error" "title cannot start with '-'" "$DEVDASH" create -urgent
 
 # ── HTTPS enforcement ──────────────────────────────
 echo "-- HTTPS enforcement --"

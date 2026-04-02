@@ -120,6 +120,26 @@ else
 fi
 teardown_api_test
 
+setup_api_test
+output=$(run_dd create --bogus 2>&1) || true
+assert_contains "create unknown flag prints error" "unknown flag for create" echo "$output"
+if [ ! -s "$MOCK_CURL_LOG" ]; then
+  pass "create unknown flag skips API call"
+else
+  fail "create unknown flag skips API call"
+fi
+teardown_api_test
+
+setup_api_test
+output=$(run_dd create -urgent 2>&1) || true
+assert_contains "create dash-prefixed title prints error" "title cannot start with '-'" echo "$output"
+if [ ! -s "$MOCK_CURL_LOG" ]; then
+  pass "create dash-prefixed title skips API call"
+else
+  fail "create dash-prefixed title skips API call"
+fi
+teardown_api_test
+
 # ── update ───────────────────────────────────────────
 echo "-- update --"
 setup_api_test
