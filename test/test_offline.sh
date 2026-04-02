@@ -70,6 +70,16 @@ if grep -qF "Run \`devdash prime\` at the start of every new session." "${_agent
 else
   fail "codex config contains custom guidance"
 fi
+if grep -qF "Before each commit, confirm that the commit maps to exactly one devdash issue." "${_agent_dir}/AGENTS.md" 2>/dev/null; then
+  pass "codex config contains commit guidance"
+else
+  fail "codex config contains commit guidance"
+fi
+if grep -qF "Run the narrowest verification that meaningfully covers the change, then summarize the result for the user." "${_agent_dir}/AGENTS.md" 2>/dev/null; then
+  pass "codex config contains verification guidance"
+else
+  fail "codex config contains verification guidance"
+fi
 _skip_output=$(cd "$_agent_dir" && "$DEVDASH" agent-setup --all 2>&1)
 if echo "$_skip_output" | grep -qF "already configured"; then
   pass "agent-setup skips existing (idempotent)"

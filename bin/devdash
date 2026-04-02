@@ -2656,10 +2656,18 @@ CUSTOM
 
 - Run `devdash prime` at the start of every new session. Run it again after any handoff, compaction, or context-loss event.
 - If the user already named a specific devdash issue, follow `devdash prime` with `devdash show <id>` and `devdash update <id> --status=in_progress` instead of `devdash ready`.
+- Use `devdash ready` only when the user has not already chosen the task.
 - Use `devdash --help` when you need to confirm command syntax, capabilities, or supported workflow.
 - Minimize redundant startup work after `devdash prime`. Don't run broad repo scans or repeated discovery commands unless the current request needs them.
-- Read only the context needed for the current request. Prefer targeted repo reads (`rg`, `sed`, `git status --short`) over whole-repo exploration when the task is narrow.
+- Read only the context needed for the current request. Prefer targeted repo reads (`rg`, `rg --files`, `sed`, `git status --short`) over whole-repo exploration when the task is narrow.
 - Avoid commands whose only purpose is to reconfirm information already present in the prompt, local instructions, or recent command output.
+- Run devdash commands yourself in the terminal; do not ask the user to run them for you.
+- Before making code changes, make sure a devdash issue exists and is marked `in_progress`.
+- Before each commit, confirm that the commit maps to exactly one devdash issue.
+- Report progress with `devdash report` at `code_complete`, `committed`, and `pushed`.
+- Never close a devdash issue until `git push` succeeds.
+- Preserve existing user changes. Do not revert unrelated modifications or overwrite work you did not make.
+- Run the narrowest verification that meaningfully covers the change, then summarize the result for the user.
 CUSTOM
       ;;
     cursor)
