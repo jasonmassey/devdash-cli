@@ -33,6 +33,8 @@ assert_contains "help lists project create" "project create" "$DEVDASH" help
 assert_contains "help lists project list"   "project list"   "$DEVDASH" help
 assert_contains "help lists project delete" "project delete" "$DEVDASH" help
 assert_contains "help lists reconcile"      "reconcile"      "$DEVDASH" help
+assert_contains "help cli guides ready for task choice" "Use this when you need to choose what to work on next." "$DEVDASH" help cli
+assert_contains "help cli guides show for named issue" "Start here when the user already named the issue." "$DEVDASH" help cli
 
 # ── Doctor ───────────────────────────────────────────
 echo "-- doctor --"
@@ -81,6 +83,14 @@ else
   fail "agent-setup --force overwrites"
 fi
 rm -rf "$_agent_dir"
+
+# ── Prime ────────────────────────────────────────────
+echo "-- prime --"
+_prime_dir="$(mktemp -d)"
+echo '{"project_id":"test"}' > "${_prime_dir}/.devdash"
+assert_contains "prime shows named-task start flow" 'Start (task already named)' bash -c "cd '$_prime_dir' && '$DEVDASH' prime"
+assert_contains "prime shows ready flow for task selection" 'Start (need a task)' bash -c "cd '$_prime_dir' && '$DEVDASH' prime"
+rm -rf "$_prime_dir"
 
 # ── Priority validation ─────────────────────────────
 echo "-- priority validation --"

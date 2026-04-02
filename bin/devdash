@@ -2530,7 +2530,8 @@ $(if [ "$close_gate" = "commit" ]; then
 - **Prohibited**: Do NOT use \`bd\`, TodoWrite, TaskCreate, or markdown files for task tracking
 
 ## Quick Reference
-- **Start**: \`${dd_cmd} ready\` → \`${dd_cmd} show <id>\` → \`${dd_cmd} update <id> --status=in_progress\`
+- **Start (task already named)**: \`${dd_cmd} show <id>\` → \`${dd_cmd} update <id> --status=in_progress\`
+- **Start (need a task)**: \`${dd_cmd} ready\` → \`${dd_cmd} show <id>\` → \`${dd_cmd} update <id> --status=in_progress\`
 - **Complete**: $(if [ "$close_gate" = "commit" ]; then echo "git add → commit → \`${dd_cmd} close <id> --summary=\"...\" --commit=\$(git rev-parse HEAD)\`"; else echo "git add → commit → push → \`${dd_cmd} close <id> --summary=\"...\" --commit=\$(git rev-parse HEAD)\`"; fi)
 - **Report**: \`${dd_cmd} report <id> --status=code_complete|committed|pushed|error --summary="..."\`
 - Close summaries are institutional memory — include what, why, decisions, surprises, follow-ups.
@@ -3062,10 +3063,10 @@ dd_help_cli() {
 # CLI Reference
 
 ## Viewing issues
-- \`${cmd} ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. **Start here.**
+- \`${cmd} ready [--since=X]\` — Pending + unblocked issues sorted by priority. Excludes thoughts. Use this when you need to choose what to work on next.
 - \`${cmd} list [--status=pending|in_progress|completed] [--since=X] [--parent=<id>]\` — All issues, optionally filtered by status, time, or parent.
 - \`${cmd} blocked\` — Pending issues with unsatisfied dependencies.
-- \`${cmd} show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent.
+- \`${cmd} show <id>\` — Full issue detail: description, dependencies, pre-instructions, parent. Start here when the user already named the issue.
 - \`${cmd} find <uuid>\` — Look up a bead by full UUID across all accessible projects. Returns bead with project context.
 - \`${cmd} stats\` — Project health: open/closed/blocked counts.
 - \`${cmd} comments <id>\` — List comments on an issue.
