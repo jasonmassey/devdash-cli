@@ -65,7 +65,7 @@ if grep -qF "devdash:agent-instructions" "${_agent_dir}/CLAUDE.md" 2>/dev/null; 
 else
   fail "agent config contains marker"
 fi
-if grep -qF 'Run `devdash prime` at the start of every new session.' "${_agent_dir}/AGENTS.md" 2>/dev/null; then
+if grep -qF "Run \`devdash prime\` at the start of every new session." "${_agent_dir}/AGENTS.md" 2>/dev/null; then
   pass "codex config contains custom guidance"
 else
   fail "codex config contains custom guidance"
