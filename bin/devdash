@@ -844,8 +844,6 @@ dd_diagnose() {
 }
 
 dd_create() {
-  local pid
-  pid=$(dd_project_id)
   local title="" type="task" priority=2 description="" parent="" due="" estimate=""
   local usage='Usage: devdash create --title="..." [--type=task|bug|feature] [--priority=0-4] [--description="..."]'
 
@@ -881,6 +879,9 @@ dd_create() {
     echo "$usage" >&2
     exit "$DD_EXIT_USER"
   fi
+
+  local pid
+  pid=$(dd_project_id)
 
   # Validate priority is an integer 0-4
   if ! [[ "$priority" =~ ^[0-4]$ ]]; then
