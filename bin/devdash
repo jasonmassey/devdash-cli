@@ -1417,17 +1417,21 @@ dd_activity() {
   fi
 
   local url="/projects/${pid}/activity?limit=${limit}"
+  local uuid=""
 
   if [ -n "$bead_id" ]; then
-    local uuid
     uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
-    url="${url}&targetId=${uuid}"
+    # The server currently ignores targetId (dev-dash 0dd43585), so fetch the
+    # max window and filter here too. Older activity for the bead is not reachable.
+    url="/projects/${pid}/activity?limit=500&targetId=${uuid}"
   fi
 
   local result
   result=$(dd_api GET "$url")
 
-  echo "$result" | jq -r '.data[] | "[\(.createdAt)] \(.action) by \(.actorType)\(if .actor.displayName then " (\(.actor.displayName))" else "" end)\(if .artifactName then " — \(.artifactName)" else "" end)\(if .metadata then " " + (.metadata | tostring) else "" end)"'
+  echo "$result" | jq -r --arg uuid "$uuid" --argjson limit "$limit" '
+    [.data[] | select($uuid == "" or .targetId == $uuid)][0:$limit][]
+    | "[\(.createdAt)] \(.action) by \(.actorType)\(if .actor.displayName then " (\(.actor.displayName))" else "" end)\(if .artifactName then " — \(.artifactName)" else "" end)\(if .metadata then " " + (.metadata | tostring) else "" end)"'
 }
 
 dd_stats() {

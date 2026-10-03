@@ -644,3 +644,21 @@ assert_contains "list shows blocked icon" "⊘ dev-dash-1" echo "$output"
 assert_not_contains "list has no unknown-status ?" "? dev-dash" echo "$output"
 rm -rf "$_blk_dir"
 teardown_api_test
+
+# ── activity <id> filters to that bead ──────────────
+echo "-- activity <id> --"
+setup_api_test
+_act_dir=$(mktemp -d)
+cp "${TEST_DIR}/fixtures/"*.json "$_act_dir/"
+# Server ignores targetId today, so the CLI must filter client-side
+jq '.data[0].targetId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" | .data[1].targetId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"' \
+  "${TEST_DIR}/fixtures/GET_projects_ID_activity.json" > "${_act_dir}/GET_projects_ID_activity.json"
+export MOCK_CURL_FIXTURE_DIR="$_act_dir"
+output=$(run_dd activity aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "activity <id> shows that bead's events" "Test task" echo "$output"
+assert_not_contains "activity <id> hides other beads' events" "Bug fix" echo "$output"
+assert_contains "activity <id> sends targetId" "targetId=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" cat "${MOCK_CURL_LOG}.urls"
+output=$(run_dd activity --limit=1 2>&1) || true
+assert_not_contains "activity --limit=1 caps output" "Bug fix" echo "$output"
+rm -rf "$_act_dir"
+teardown_api_test
