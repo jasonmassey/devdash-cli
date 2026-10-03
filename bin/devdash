@@ -3520,6 +3520,12 @@ dd_help() {
     workflow_rule="close after git push succeeds. NEVER close in parallel with git push."
     tool_ordering="git commit+push FIRST, then ${cmd} close (sequentially)."
   fi
+  local preferred_cmd
+  if [ "$cmd" = "devdash" ]; then
+    preferred_cmd="'devdash'. Use 'dd' if aliased."
+  else
+    preferred_cmd="'${cmd}' (or 'devdash')."
+  fi
   cat <<HELP
 devdash — Dev-Dash CLI
 
@@ -3564,7 +3570,7 @@ What to store in agent memory:
 
   - Project IDs: run '${cmd} project list' and save the ID + name table.
     Use DD_PROJECT_ID=<id> to target a specific project without 'init'.
-  - Preferred command: '${cmd}' (or 'devdash'). Use 'dd' if aliased.
+  - Preferred command: ${preferred_cmd}
   - Workflow rules: always create issue before coding, mark in_progress,
     ${workflow_rule}
   - Priority scale: 0-4 integers, NOT strings like "high"/"medium"/"low".

@@ -231,3 +231,7 @@ assert_exit "doctor without token exits 3" 3 \
 assert_contains "doctor reports DEVDASH_TOKEN source" "DEVDASH_TOKEN env var" \
   env DD_CONFIG_DIR="$_auth_cfg" DD_TOKEN_FILE="${_auth_cfg}/token" DEVDASH_TOKEN=x "$DEVDASH" doctor
 rm -rf "$_auth_cfg"
+
+echo "-- help text --"
+assert_not_contains "help has no 'devdash (or devdash)' typo" "'devdash' (or 'devdash')" "$DEVDASH" help
+assert_contains "help names preferred command" "Preferred command: 'devdash'. Use 'dd' if aliased." "$DEVDASH" help
