@@ -560,3 +560,48 @@ output=$(run_dd jobs log 22222222-2222-2222-2222-222222222222 2>&1) || true
 assert_contains "jobs log full shows first line" "line1" echo "$output"
 assert_contains "jobs log full shows last line" "line30" echo "$output"
 teardown_api_test
+
+# ── token auth ──────────────────────────────────────
+echo "-- token auth --"
+
+# DEVDASH_TOKEN env var works without a token file
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+output=$(cd "$_MOCK_WORKDIR" && DEVDASH_TOKEN=dd_envtoken "$DEVDASH" list 2>&1) || true
+assert_contains "DEVDASH_TOKEN env var authenticates" "dev-dash-1" echo "$output"
+teardown_api_test
+
+# login --token verifies and saves the token
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+assert_exit "login --token exits 0" 0 run_dd login --token=dd_newtoken123
+assert_contains "login --token saves token" "dd_newtoken123" cat "$DD_TOKEN_FILE"
+assert_api_called "login --token verifies via GET /projects" "GET" "/projects"
+teardown_api_test
+
+# login --token <value> (space-separated)
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+assert_exit "login --token <value> exits 0" 0 run_dd login --token dd_spacetoken1
+assert_contains "login --token <value> saves token" "dd_spacetoken1" cat "$DD_TOKEN_FILE"
+teardown_api_test
+
+# login --with-token reads stdin
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+output=$(cd "$_MOCK_WORKDIR" && echo "dd_stdintoken1" | "$DEVDASH" login --with-token 2>&1) || true
+assert_contains "login --with-token saves token" "dd_stdintoken1" cat "$DD_TOKEN_FILE"
+assert_not_contains "login --with-token does not echo token" "dd_stdintoken1" echo "$output"
+teardown_api_test
+
+# login --token with a rejected token saves nothing
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+_reject_dir=$(mktemp -d)
+cp "${TEST_DIR}/fixtures/error_401.json" "${_reject_dir}/GET_projects.json"
+echo "401" > "${_reject_dir}/GET_projects.status"
+export MOCK_CURL_FIXTURE_DIR="$_reject_dir"
+assert_exit "login --token rejected exits 2" 2 run_dd login --token=dd_badtoken123
+if [ -f "$DD_TOKEN_FILE" ]; then fail "rejected token not saved"; else pass "rejected token not saved"; fi
+rm -rf "$_reject_dir"
+teardown_api_test

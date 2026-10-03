@@ -43,6 +43,8 @@ devdash login
 
 Your browser will open for Google sign-in. After you authenticate, the token is saved locally and you're done — no passwords to remember, no keys to paste.
 
+> **No browser here?** (SSH session, CI, or a coding agent in a sandbox) Create a token from a logged-in machine with `devdash token create "my server"` or in the web app under Settings, then run `devdash login --token=dd_...` — or just `export DEVDASH_TOKEN=dd_...`. See `devdash help auth`.
+
 > **First time?** If you don't have a Dev-Dash account yet, one is created automatically when you sign in with Google. No separate signup required.
 
 ---
@@ -284,7 +286,7 @@ The CLI reads `.devdash` to know which project you're working in. No global stat
 
 ## Troubleshooting
 
-**"Not logged in"** — Run `dd login`.
+**"Not logged in"** — Run `dd login` (or `dd login --token=dd_...` without a browser).
 
 **"No project configured"** — Run `dd init` inside your repo.
 

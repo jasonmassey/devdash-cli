@@ -25,6 +25,9 @@ curl -fsSL https://raw.githubusercontent.com/jasonmassey/devdash-cli/main/instal
 ```bash
 # 1. Authenticate (opens browser for Google OAuth)
 devdash login
+#    Headless machine, CI, or coding agent? Use an API token instead:
+#    devdash login --token=dd_...        (verifies and saves it)
+#    export DEVDASH_TOKEN=dd_...         (nothing written to disk)
 
 # 2. Link to a project
 devdash init                    # Auto-detects from git remote
@@ -67,6 +70,7 @@ devdash blocked                           # See what's waiting
 | Command | Description |
 |---------|-------------|
 | `login` | Authenticate via browser (tries ports 18787-18792) |
+| `login --token=<t>` / `--with-token` | Save an existing API token (headless/CI); `--with-token` reads it from stdin |
 | `init [name-or-id]` | Link repo to a project (auto-detect, name, ID prefix, or interactive picker) |
 | `project create` | Create a new project (`--name`, `--repo`, `--description`) |
 | `project list` | List all your projects |
@@ -137,13 +141,15 @@ cd my-project && devdash init    # Links this repo
 cd other-repo && devdash init    # Links that repo separately
 ```
 
-You can also set `DD_PROJECT_ID` and `DD_API_URL` environment variables to override.
+You can also set `DD_PROJECT_ID` and `DD_API_URL` environment variables to override. Set `DEVDASH_TOKEN` to supply an API token without a token file.
+
+Every command accepts `--help` (e.g. `devdash login --help`), and unknown flags are rejected with the command's usage.
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| `Not logged in` | Run `devdash login` |
+| `Not logged in` | Run `devdash login`, or `devdash login --token=dd_...` without a browser (see `devdash help auth`) |
 | `No project configured` | Run `devdash init` in your repo |
 | `Port 18787 in use` during login | CLI auto-tries ports 18787-18792 |
 | `API error (401)` | Token expired — re-run `devdash login` |
