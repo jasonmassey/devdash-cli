@@ -1397,7 +1397,7 @@ dd_comments() {
 }
 
 dd_activity() {
-  local bead_id="${1:-}"
+  local bead_id=""
   local pid
   pid=$(dd_project_id)
   local limit=20
@@ -1409,6 +1409,11 @@ dd_activity() {
     esac
     shift
   done
+
+  if ! [[ "$limit" =~ ^[0-9]+$ ]] || [ "$limit" -lt 1 ] || [ "$limit" -gt 500 ]; then
+    echo "Error: --limit must be a number from 1 to 500 (got: $limit)" >&2
+    exit "$DD_EXIT_USER"
+  fi
 
   local url="/projects/${pid}/activity?limit=${limit}"
 

@@ -374,6 +374,13 @@ assert_contains "activity shows artifact" "Test task" echo "$output"
 assert_api_called "activity calls GET" "GET" "/projects/95ca3de0-7e4f-4f9e-9b17-36f5609cfa11/activity"
 teardown_api_test
 
+# activity --limit is a flag, not a bead ID
+setup_api_test
+assert_exit "activity --limit=5 exits 0" 0 run_dd activity --limit=5
+assert_contains "activity --limit passes limit" "activity?limit=5" cat "${MOCK_CURL_LOG}.urls"
+assert_exit "activity --limit=abc exits 1" 1 run_dd activity --limit=abc
+teardown_api_test
+
 # ── bulk close ──────────────────────────────────────
 echo "-- bulk close --"
 setup_api_test
