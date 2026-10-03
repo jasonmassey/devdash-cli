@@ -110,7 +110,7 @@ rm -rf "$_prime_dir"
 # ── Priority validation ─────────────────────────────
 echo "-- priority validation --"
 _pv_dir="$(mktemp -d)"
-echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_pv_dir}/.devdash"
+echo '{"project_id":"test"}' > "${_pv_dir}/.devdash"
 _pv_config="$(mktemp -d)"
 echo "mock-token" > "${_pv_config}/token"
 _pv_env="env DD_CONFIG_DIR=$_pv_config DD_TOKEN_FILE=${_pv_config}/token"
@@ -149,22 +149,29 @@ echo "-- HTTPS enforcement --"
 _https_dir="$(mktemp -d)"
 _https_config="$(mktemp -d)"
 echo "mock-token" > "${_https_config}/token"
+echo '{"project_id":"test"}' > "${_https_dir}/.devdash"
 
-# HTTP non-localhost should warn
-echo '{"project_id":"test","api_url":"http://example.com"}' > "${_https_dir}/.devdash"
-assert_contains "HTTP non-localhost warns" "insecure HTTP" \
+# DD_API_URL=http://example.com (non-localhost HTTP) should warn
+assert_contains "HTTP non-localhost DD_API_URL warns" "insecure HTTP" \
   env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="http://example.com" \
   bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
 
-# HTTP localhost should NOT warn
-echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_https_dir}/.devdash"
-assert_not_contains "HTTP localhost no warning" "insecure HTTP" \
+# DD_API_URL=http://localhost should NOT warn
+assert_not_contains "HTTP localhost DD_API_URL no warning" "insecure HTTP" \
   env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="http://localhost:9999" \
   bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
 
-# HTTPS should NOT warn
-echo '{"project_id":"test","api_url":"https://example.com"}' > "${_https_dir}/.devdash"
-assert_not_contains "HTTPS no warning" "insecure HTTP" \
+# DD_API_URL=https://example.com should NOT warn
+assert_not_contains "HTTPS DD_API_URL no warning" "insecure HTTP" \
+  env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="https://example.com" \
+  bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
+
+# api_url in .devdash must be IGNORED (security: repo cannot redirect token)
+echo '{"project_id":"test","api_url":"http://evil.example.com"}' > "${_https_dir}/.devdash"
+assert_not_contains "repo api_url ignored (no insecure-HTTP warning from repo field)" "insecure HTTP" \
   env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
   bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
 
@@ -177,7 +184,7 @@ assert_contains "unknown command message" "Unknown command" "$DEVDASH" xyzzy
 assert_exit "show without args exits 1"   1 "$DEVDASH" show
 # create calls dd_project_id() before checking title, so run in a dir with .devdash
 _err_dir="$(mktemp -d)"
-echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_err_dir}/.devdash"
+echo '{"project_id":"test"}' > "${_err_dir}/.devdash"
 _err_config="$(mktemp -d)"
 echo "mock-token" > "${_err_config}/token"
 assert_exit "create without title exits 1" 1 \
@@ -188,7 +195,7 @@ assert_exit "delete without args exits 1" 1 "$DEVDASH" delete
 # ── Unauthenticated ─────────────────────────────────
 echo "-- unauthenticated access --"
 _tmp_dir="$(mktemp -d)"
-echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_tmp_dir}/.devdash"
+echo '{"project_id":"test"}' > "${_tmp_dir}/.devdash"
 _tmp_config_dir="$(mktemp -d)"
 _tmp_token_file="${_tmp_config_dir}/token"
 assert_contains "no-token shows login prompt" "devdash login" \

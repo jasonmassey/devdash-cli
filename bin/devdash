@@ -37,16 +37,17 @@ dd_frontend_url() {
 }
 
 dd_api_url() {
-  local url=""
-  if [ -f "$DD_PROJECT_FILE" ]; then
-    url=$(jq -r '.api_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
-  fi
-  url="${url:-${DD_API_URL:-https://dev-dash-server-production.up.railway.app}}"
+  # SECURITY: api_url from the repository .devdash file is intentionally ignored.
+  # Accepting it would allow an attacker-controlled repository to redirect the
+  # Bearer token to an arbitrary server (including HTTPS) without user consent.
+  # The API origin is a trusted user choice set via DD_API_URL env var or the
+  # compiled-in default.  Only project_id is read from .devdash.
+  local url="${DD_API_URL:-https://dev-dash-server-production.up.railway.app}"
 
-  # Enforce HTTPS (allow http only for localhost/127.0.0.1 dev)
+  # Enforce HTTPS (allow http only for localhost/127.0.0.1 dev mode)
   if [[ "$url" == http://* ]] && [[ "$url" != http://localhost* ]] && [[ "$url" != http://127.0.0.1* ]]; then
     echo "Warning: API URL uses insecure HTTP: $url" >&2
-    echo "Set a https:// URL or use http://localhost for local dev." >&2
+    echo "Set DD_API_URL to a https:// URL or use http://localhost for local dev." >&2
   fi
   echo "$url"
 }
@@ -177,7 +178,10 @@ dd_api() {
   token=$(dd_get_token) || return $?
   url="$(dd_api_url)/api${endpoint}"
   tmpfile=$(mktemp)
-  http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X "$method" \
+  # SECURITY: --max-redirs 0 prevents curl from following any redirect.
+  # This ensures the Authorization: Bearer token is never forwarded to a
+  # different origin, even if the server (or a MITM) issues a 3xx redirect.
+  http_code=$(curl -s --max-redirs 0 -o "$tmpfile" -w '%{http_code}' -X "$method" \
     -H "Authorization: Bearer ${token}" \
     -H "Content-Type: application/json" \
     "$url" "$@" 2>/dev/null) || {
@@ -1859,10 +1863,11 @@ dd_doctor() {
     if [ -n "$api_base" ]; then
       local token health_code auth_code
       token=$(cat "$DD_TOKEN_FILE")
-      health_code=$(curl -s -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
+      # SECURITY: --max-redirs 0 prevents token forwarding on redirects.
+      health_code=$(curl -s --max-redirs 0 -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
       if [ "$health_code" = "200" ]; then
         echo "  ✓ server: ${api_base} (reachable)"
-        auth_code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
+        auth_code=$(curl -s --max-redirs 0 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
         if [ "$auth_code" -ge 200 ] && [ "$auth_code" -lt 300 ]; then
           echo "  ✓ auth: token accepted"
         else
