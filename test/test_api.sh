@@ -612,3 +612,15 @@ assert_exit "login --token rejected exits 2" 2 run_dd login --token=dd_badtoken1
 if [ -f "$DD_TOKEN_FILE" ]; then fail "rejected token not saved"; else pass "rejected token not saved"; fi
 rm -rf "$_reject_dir"
 teardown_api_test
+
+# ── token list ──────────────────────────────────────
+echo "-- token list --"
+setup_api_test
+output=$(run_dd token list 2>&1) || true
+assert_contains "token list shows prefix" "dd_abc1234..." echo "$output"
+assert_contains "token list shows created date" "(created 2026-09-01)" echo "$output"
+assert_contains "token list marks revoked token" "✗ dd_def5678...  old ci" echo "$output"
+assert_contains "token list shows revoked tag" "[revoked]" echo "$output"
+assert_contains "token list shows active token" "✓ dd_abc1234...  laptop" echo "$output"
+assert_not_contains "token list has no null prefix" "null..." echo "$output"
+teardown_api_test

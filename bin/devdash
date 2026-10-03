@@ -3027,7 +3027,10 @@ dd_token_dispatch() {
         echo "No API tokens. Create one with: devdash token create \"my token\""
         return
       fi
-      echo "$tokens" | dd_jq -r '.[] | "\(if .revoked_at then "✗" else "✓" end) \(.token_prefix)...  \(.name)  (created \(.created_at // "?"))\(if .revoked_at then "  [revoked]" else "" end)  id:\(.id[0:8])"'
+      # API returns camelCase (tokenPrefix, createdAt, revokedAt); snake_case kept for older servers
+      echo "$tokens" | dd_jq -r '.[]
+        | (.revokedAt // .revoked_at) as $revoked
+        | "\(if $revoked then "✗" else "✓" end) \(.tokenPrefix // .token_prefix // "?")...  \(.name)  (created \((.createdAt // .created_at // "?") | tostring | .[0:10]))\(if $revoked then "  [revoked]" else "" end)  id:\(.id[0:8])"'
       ;;
     revoke)
       if [ -z "${1:-}" ]; then
