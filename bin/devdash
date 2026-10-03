@@ -706,7 +706,7 @@ dd_list() {
     beads=$(echo "$beads" | jq --arg p "$parent_filter" '[.[] | select(.parentBeadId == $p)]')
   fi
 
-  echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" else "?" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
+  echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" elif . == "blocked" then "⊘" elif . == "failed" then "✗" else "[\(.)]" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
 }
 
 dd_ready() {
@@ -1441,11 +1441,15 @@ dd_stats() {
   pending=$(echo "$beads" | jq '[.[] | select(.status == "pending")] | length')
   in_progress=$(echo "$beads" | jq '[.[] | select(.status == "in_progress")] | length')
   completed=$(echo "$beads" | jq '[.[] | select(.status == "completed")] | length')
+  # Server sets status "blocked" on dep add; pending beads with open deps also count
   blocked=$(echo "$beads" | jq '
     ([.[] | select(.status == "completed") | .id]) as $done |
-    [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
-         | select([.blockedBy[] | IN($done[])] | all | not)]
+    [.[] | select(.status == "blocked"
+                  or (.status == "pending" and ((.blockedBy // []) | length) > 0
+                      and ([.blockedBy[] | IN($done[])] | all | not)))]
     | length')
+  local other
+  other=$(echo "$beads" | jq '[.[] | select(.status | IN("pending", "in_progress", "completed", "blocked") | not)] | length')
   ready=$(echo "$beads" | jq '
     ([.[] | select(.status == "completed") | .id]) as $done |
     [.[] | select(.status == "pending")
@@ -1458,6 +1462,8 @@ dd_stats() {
   echo "Completed:   ${completed}"
   echo "Blocked:     ${blocked}"
   echo "Ready:       ${ready}"
+  [ "$other" -gt 0 ] && echo "Other:       ${other}  (failed/archived/etc.)"
+  return 0
 }
 
 dd_team() {
@@ -1698,12 +1704,14 @@ dd_blocked() {
 
   echo "$beads" | jq -r '
     # Build lookup of completed bead IDs
+    # Server sets status "blocked" on dep add; also catch pending beads with open deps
     ([.[] | select(.status == "completed") | .id]) as $done |
-    [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
-         | select([.blockedBy[] | IN($done[])] | all | not)]
+    [.[] | select(.status == "blocked"
+                  or (.status == "pending" and ((.blockedBy // []) | length) > 0
+                      and ([.blockedBy[] | IN($done[])] | all | not)))]
     | sort_by(.priority)
     | .[]
-    | "○ \(.localBeadId // .id) [P\(.priority)] - \(.subject)  blocked by: \(.blockedBy | join(", "))"
+    | "⊘ \(.localBeadId // .id) [P\(.priority)] - \(.subject)  blocked by: \(if ((.blockedBy // []) | length) > 0 then (.blockedBy | join(", ")) else "(none listed)" end)"
   '
 }
 

@@ -624,3 +624,23 @@ assert_contains "token list shows revoked tag" "[revoked]" echo "$output"
 assert_contains "token list shows active token" "✓ dd_abc1234...  laptop" echo "$output"
 assert_not_contains "token list has no null prefix" "null..." echo "$output"
 teardown_api_test
+
+# ── server "blocked" status ─────────────────────────
+echo "-- server blocked status --"
+setup_api_test
+_blk_dir=$(mktemp -d)
+cp "${TEST_DIR}/fixtures/"*.json "$_blk_dir/"
+# dev-dash-1 gets status "blocked" from the server (as after dep add)
+jq '.data |= map(if .localBeadId == "dev-dash-1" then .status = "blocked" | .blockedBy = ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"] else . end)' \
+  "${TEST_DIR}/fixtures/GET_beads.json" > "${_blk_dir}/GET_beads.json"
+export MOCK_CURL_FIXTURE_DIR="$_blk_dir"
+output=$(run_dd blocked 2>&1) || true
+assert_contains "blocked shows server-blocked bead" "dev-dash-1" echo "$output"
+assert_contains "blocked still shows pending bead with open deps" "dev-dash-3" echo "$output"
+output=$(run_dd stats 2>&1) || true
+assert_contains "stats counts server-blocked beads" "Blocked:     2" echo "$output"
+output=$(run_dd list 2>&1) || true
+assert_contains "list shows blocked icon" "⊘ dev-dash-1" echo "$output"
+assert_not_contains "list has no unknown-status ?" "? dev-dash" echo "$output"
+rm -rf "$_blk_dir"
+teardown_api_test
