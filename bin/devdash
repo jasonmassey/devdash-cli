@@ -42,7 +42,7 @@ dd_api_url() {
   if [ -f "$DD_PROJECT_FILE" ]; then
     url=$(jq -r '.api_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
   fi
-  url="${url:-${DD_API_URL:-https://dev-dash-server-production.up.railway.app}}"
+  url="${url:-${DD_API_URL:-https://devdash-prime.up.railway.app}}"
 
   # Enforce HTTPS (allow http only for localhost/127.0.0.1 dev)
   if [[ "$url" == http://* ]] && [[ "$url" != http://localhost* ]] && [[ "$url" != http://127.0.0.1* ]]; then
