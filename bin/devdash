@@ -1283,8 +1283,9 @@ dd_delete() {
       esac
     fi
 
-    local delete_qs=""
-    [ "$cascade" = true ] && delete_qs="?cascade=true"
+    # Server requires projectId in the query string (400 without it)
+    local delete_qs="?projectId=${pid}"
+    [ "$cascade" = true ] && delete_qs="${delete_qs}&cascade=true"
     dd_api DELETE "/beads/${uuid}${delete_qs}" > /dev/null
     echo "Deleted: ${uuid}"
   done

@@ -253,11 +253,11 @@ setup_api_test
 output=$(run_dd delete --force aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
 assert_contains "delete --force shows Deleted" "Deleted" echo "$output"
 assert_api_called "delete calls DELETE /beads" "DELETE" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-# Verify delete URL does NOT include projectId (regression: caused 404)
-if grep -F "DELETE" "${MOCK_CURL_LOG}.urls" | grep -qF "projectId"; then
-  fail "delete URL excludes projectId (found projectId in URL)"
+# Server requires projectId in the query string (400 without it)
+if grep -F "DELETE" "${MOCK_CURL_LOG}.urls" | grep -qF "projectId=95ca3de0-7e4f-4f9e-9b17-36f5609cfa11"; then
+  pass "delete URL includes projectId"
 else
-  pass "delete URL excludes projectId"
+  fail "delete URL includes projectId"
 fi
 teardown_api_test
 
