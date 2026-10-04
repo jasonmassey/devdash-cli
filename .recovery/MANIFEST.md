@@ -19,7 +19,7 @@ Filename format: `<tracking-uuid>__<project-dir>__<session-id>.jsonl`
 
 | Tracking UUID | Date       | Project            | Session ID       | DD cmds | Status |
 |---------------|------------|--------------------|------------------|---------|--------|
-| 0f62afda      | 2026-04-10 | dev-dash           | 8cb43c60         | 111     | in_progress — partial recreation done (see RECOVERY_STATE.md) |
+| 0f62afda      | 2026-04-10 | dev-dash           | 8cb43c60         | 111     | completed — recreated and closed in recovery order that satisfies current server rules |
 | 8d6ca17c      | 2026-04-10 | dev-dash           | dd7369ed         | 1       | pending |
 | 23aee464      | 2026-04-10 | dev-dash           | afd8f398         | 1       | pending |
 | b69317d2      | 2026-04-11 | dev-dash           | f6919d6f         | 1       | pending |
@@ -40,7 +40,7 @@ Filename format: `<tracking-uuid>__<project-dir>__<session-id>.jsonl`
 | 5c848906      | 2026-04-15 | dev-dash           | f032e314         | 32      | pending |
 | 71a12133      | 2026-04-15 | dev-dash           | f3d0c2fe         | 183     | pending |
 | ec94f2b5      | 2026-04-15 | devdash-cli-go     | b9fa31fe         | 1       | pending |
-| 5dd46fa6      | 2026-04-15 | devdash-cli        | 55606f94         | 0       | pending (nothing to recover) |
+| 5dd46fa6      | 2026-04-15 | devdash-cli        | 55606f94         | 0       | completed — verified raw log contains no dd/devdash commands; only immediate /exit |
 | 2401d813      | 2026-04-15 | devdash-cli        | 4c7719ca         | 16      | pending (this session — offline-mode work) |
 
 ## Extraction approach
