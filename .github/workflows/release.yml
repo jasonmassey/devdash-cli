@@ -25,10 +25,9 @@ jobs:
       - name: Run tests
         run: bash test/test.sh
 
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # npm publishing is disabled: this bash CLI is deprecated and the
+      # @devdashproject/devdash-cli package now belongs to the Go CLI
+      # (devdashproject/devdash-cli). Publishing here would overwrite it.
 
       - name: Create GitHub Release
         run: gh release create ${{ github.ref_name }} --generate-notes

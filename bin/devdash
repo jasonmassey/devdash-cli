@@ -11,6 +11,7 @@ trap 'printf "\n"; exit 130' INT
 DD_VERSION="0.2.0"
 DD_CONFIG_DIR="${DD_CONFIG_DIR:-${HOME}/.config/dev-dash}"
 DD_TOKEN_FILE="${DD_TOKEN_FILE:-${DD_CONFIG_DIR}/token}"
+# DEVDASH_TOKEN (env var), when set, takes precedence over DD_TOKEN_FILE
 DD_PROJECT_FILE=".devdash"
 
 # Exit codes: 0=success, 1=user error, 2=API error, 3=config error
@@ -41,7 +42,7 @@ dd_api_url() {
   if [ -f "$DD_PROJECT_FILE" ]; then
     url=$(jq -r '.api_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
   fi
-  url="${url:-${DD_API_URL:-https://dev-dash-server-production.up.railway.app}}"
+  url="${url:-${DD_API_URL:-https://devdash-prime.up.railway.app}}"
 
   # Enforce HTTPS (allow http only for localhost/127.0.0.1 dev)
   if [[ "$url" == http://* ]] && [[ "$url" != http://localhost* ]] && [[ "$url" != http://127.0.0.1* ]]; then
@@ -162,12 +163,43 @@ dd_get_token() {
       chmod 700 "$DD_CONFIG_DIR"
     fi
   fi
-  if [ -f "$DD_TOKEN_FILE" ]; then
+  if [ -n "${DEVDASH_TOKEN:-}" ]; then
+    echo "$DEVDASH_TOKEN"
+  elif [ -f "$DD_TOKEN_FILE" ]; then
     cat "$DD_TOKEN_FILE"
   else
-    echo "Not logged in. Run: devdash login" >&2
+    dd_not_logged_in_hint >&2
     exit "$DD_EXIT_CONFIG"
   fi
+}
+
+dd_not_logged_in_hint() {
+  cat <<EOF
+Not logged in. Authenticate with one of:
+  devdash login                       Browser sign-in (Google OAuth)
+  devdash login --token=dd_...        Save an existing API token (headless/CI)
+  export DEVDASH_TOKEN=dd_...         Use a token for this shell without saving it
+More: devdash help auth
+EOF
+}
+
+# True if a token is available (DEVDASH_TOKEN env var or token file)
+dd_has_token() {
+  [ -n "${DEVDASH_TOKEN:-}" ] || [ -f "$DD_TOKEN_FILE" ]
+}
+
+# Describe where the active token comes from
+dd_token_source() {
+  if [ -n "${DEVDASH_TOKEN:-}" ]; then
+    echo "DEVDASH_TOKEN env var"
+  elif [ -f "$DD_TOKEN_FILE" ]; then
+    echo "$DD_TOKEN_FILE"
+  fi
+}
+
+# Mask anything that looks like an API token before echoing user input
+dd_mask_secrets() {
+  printf '%s' "$1" | sed -E 's/dd_[A-Za-z0-9]{6,}/dd_****/g'
 }
 
 dd_api() {
@@ -298,18 +330,89 @@ dd_cmd_name() {
 
 # ── Commands ─────────────────────────────────────────────────────
 
+# This bash CLI is superseded by the Go CLI. Printed to stderr so stdout stays parseable.
+dd_deprecation_notice() {
+  cat >&2 <<'EOF'
+Note: this bash devdash CLI is deprecated and no longer maintained.
+      Install the current Go CLI: https://github.com/devdashproject/devdash-cli
+        curl -fsSL https://raw.githubusercontent.com/devdashproject/devdash-cli/main/install.sh | sh
+EOF
+}
+
 dd_version() {
   echo "devdash ${DD_VERSION}"
+  dd_deprecation_notice
+}
+
+# Save a token after verifying the API accepts it (non-interactive login)
+dd_login_with_token() {
+  local token="$1" api_url code
+  api_url=$(dd_api_url)
+  code=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer ${token}" "${api_url}/api/projects" 2>/dev/null) || code="000"
+  if [ "$code" = "000" ]; then
+    echo "Error: could not connect to ${api_url} to verify the token. Nothing was saved." >&2
+    exit "$DD_EXIT_API"
+  elif [ "$code" = "401" ] || [ "$code" = "403" ]; then
+    echo "Error: token rejected by ${api_url} (HTTP ${code}). Nothing was saved." >&2
+    echo "Check the token, or create a new one in the web app (Settings) or with 'devdash token create'." >&2
+    exit "$DD_EXIT_API"
+  elif [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+    echo "Error: could not verify token (HTTP ${code} from ${api_url}). Nothing was saved." >&2
+    exit "$DD_EXIT_API"
+  fi
+
+  mkdir -p "$DD_CONFIG_DIR"
+  chmod 700 "$DD_CONFIG_DIR"
+  (umask 077 && printf '%s\n' "$token" > "$DD_TOKEN_FILE")
+  chmod 600 "$DD_TOKEN_FILE"
+  echo "Logged in (token verified). Token stored in ${DD_TOKEN_FILE}"
+  echo ""
+  echo "Next: link a project —"
+  echo "  devdash init                        Link this repo to an existing project"
+  echo "  devdash project create --name=\"...\"  Create a new project"
 }
 
 dd_login() {
-  local no_browser=false
+  local no_browser=false token="" with_token=false
   while [ $# -gt 0 ]; do
     case "$1" in
-      --no-browser) no_browser=true; shift ;;
-      *) shift ;;
+      --no-browser) no_browser=true ;;
+      --token=*) token="${1#--token=}" ;;
+      --token)
+        if [ -z "${2:-}" ]; then
+          echo "Error: --token needs a value: devdash login --token=dd_..." >&2
+          exit "$DD_EXIT_USER"
+        fi
+        token="$2"; shift ;;
+      --with-token) with_token=true ;;
+      *)
+        echo "Error: unexpected argument for login: $(dd_mask_secrets "$1")" >&2
+        echo "To log in with an API token: devdash login --token=dd_...  (or pipe it to: devdash login --with-token)" >&2
+        exit "$DD_EXIT_USER"
+        ;;
     esac
+    shift
   done
+
+  if [ "$with_token" = true ]; then
+    if [ -t 0 ]; then
+      printf 'Paste API token: ' >&2
+      IFS= read -rs token || true
+      echo >&2
+    else
+      IFS= read -r token || true
+    fi
+    token="${token//[[:space:]]/}"
+    if [ -z "$token" ]; then
+      echo "Error: no token read from stdin" >&2
+      exit "$DD_EXIT_USER"
+    fi
+  fi
+  if [ -n "$token" ]; then
+    dd_login_with_token "$token"
+    return
+  fi
 
   local nonce
   nonce=$(openssl rand -hex 16)
@@ -383,6 +486,7 @@ s.serve_forever()
     open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null || echo "Open this URL in your browser: $url"
   fi
   echo "Waiting for callback (up to 2 minutes)..."
+  echo "(Headless or no browser on this machine? Ctrl+C and use: devdash login --token=dd_...)"
 
   # Wait for server to exit (callback received or timeout)
   wait "$server_pid" 2>/dev/null || true
@@ -446,8 +550,8 @@ dd_init() {
 
   # Fetch projects
   local projects
-  projects=$(dd_api GET "/projects" 2>/dev/null) || {
-    echo "Failed to fetch projects. Are you logged in? Run: devdash login" >&2
+  projects=$(dd_api GET "/projects") || {
+    echo "Failed to fetch projects (see error above). Check setup with: devdash doctor" >&2
     exit "$DD_EXIT_API"
   }
 
@@ -612,7 +716,7 @@ dd_list() {
     beads=$(echo "$beads" | jq --arg p "$parent_filter" '[.[] | select(.parentBeadId == $p)]')
   fi
 
-  echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" else "?" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
+  echo "$beads" | jq -r '.[] | "\(.status | if . == "pending" then "○" elif . == "in_progress" then "●" elif . == "completed" then "✓" elif . == "blocked" then "⊘" elif . == "failed" then "✗" else "[\(.)]" end) \(.localBeadId // .id) [P\(.priority)] [\(.beadType // "task")] - \(.subject)\(if (.blockedBy | length) > 0 then " (blocked)" else "" end)"'
 }
 
 dd_ready() {
@@ -1189,8 +1293,9 @@ dd_delete() {
       esac
     fi
 
-    local delete_qs=""
-    [ "$cascade" = true ] && delete_qs="?cascade=true"
+    # Server requires projectId in the query string (400 without it)
+    local delete_qs="?projectId=${pid}"
+    [ "$cascade" = true ] && delete_qs="${delete_qs}&cascade=true"
     dd_api DELETE "/beads/${uuid}${delete_qs}" > /dev/null
     echo "Deleted: ${uuid}"
   done
@@ -1303,7 +1408,7 @@ dd_comments() {
 }
 
 dd_activity() {
-  local bead_id="${1:-}"
+  local bead_id=""
   local pid
   pid=$(dd_project_id)
   local limit=20
@@ -1316,18 +1421,27 @@ dd_activity() {
     shift
   done
 
+  if ! [[ "$limit" =~ ^[0-9]+$ ]] || [ "$limit" -lt 1 ] || [ "$limit" -gt 500 ]; then
+    echo "Error: --limit must be a number from 1 to 500 (got: $limit)" >&2
+    exit "$DD_EXIT_USER"
+  fi
+
   local url="/projects/${pid}/activity?limit=${limit}"
+  local uuid=""
 
   if [ -n "$bead_id" ]; then
-    local uuid
     uuid=$(dd_resolve_id "$bead_id" "$pid") || exit 1
-    url="${url}&targetId=${uuid}"
+    # The server currently ignores targetId (dev-dash 0dd43585), so fetch the
+    # max window and filter here too. Older activity for the bead is not reachable.
+    url="/projects/${pid}/activity?limit=500&targetId=${uuid}"
   fi
 
   local result
   result=$(dd_api GET "$url")
 
-  echo "$result" | jq -r '.data[] | "[\(.createdAt)] \(.action) by \(.actorType)\(if .actor.displayName then " (\(.actor.displayName))" else "" end)\(if .artifactName then " — \(.artifactName)" else "" end)\(if .metadata then " " + (.metadata | tostring) else "" end)"'
+  echo "$result" | jq -r --arg uuid "$uuid" --argjson limit "$limit" '
+    [.data[] | select($uuid == "" or .targetId == $uuid)][0:$limit][]
+    | "[\(.createdAt)] \(.action) by \(.actorType)\(if .actor.displayName then " (\(.actor.displayName))" else "" end)\(if .artifactName then " — \(.artifactName)" else "" end)\(if .metadata then " " + (.metadata | tostring) else "" end)"'
 }
 
 dd_stats() {
@@ -1341,11 +1455,15 @@ dd_stats() {
   pending=$(echo "$beads" | jq '[.[] | select(.status == "pending")] | length')
   in_progress=$(echo "$beads" | jq '[.[] | select(.status == "in_progress")] | length')
   completed=$(echo "$beads" | jq '[.[] | select(.status == "completed")] | length')
+  # Server sets status "blocked" on dep add; pending beads with open deps also count
   blocked=$(echo "$beads" | jq '
     ([.[] | select(.status == "completed") | .id]) as $done |
-    [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
-         | select([.blockedBy[] | IN($done[])] | all | not)]
+    [.[] | select(.status == "blocked"
+                  or (.status == "pending" and ((.blockedBy // []) | length) > 0
+                      and ([.blockedBy[] | IN($done[])] | all | not)))]
     | length')
+  local other
+  other=$(echo "$beads" | jq '[.[] | select(.status | IN("pending", "in_progress", "completed", "blocked") | not)] | length')
   ready=$(echo "$beads" | jq '
     ([.[] | select(.status == "completed") | .id]) as $done |
     [.[] | select(.status == "pending")
@@ -1358,6 +1476,8 @@ dd_stats() {
   echo "Completed:   ${completed}"
   echo "Blocked:     ${blocked}"
   echo "Ready:       ${ready}"
+  [ "$other" -gt 0 ] && echo "Other:       ${other}  (failed/archived/etc.)"
+  return 0
 }
 
 dd_team() {
@@ -1598,12 +1718,14 @@ dd_blocked() {
 
   echo "$beads" | jq -r '
     # Build lookup of completed bead IDs
+    # Server sets status "blocked" on dep add; also catch pending beads with open deps
     ([.[] | select(.status == "completed") | .id]) as $done |
-    [.[] | select(.status == "pending" and (.blockedBy | length) > 0)
-         | select([.blockedBy[] | IN($done[])] | all | not)]
+    [.[] | select(.status == "blocked"
+                  or (.status == "pending" and ((.blockedBy // []) | length) > 0
+                      and ([.blockedBy[] | IN($done[])] | all | not)))]
     | sort_by(.priority)
     | .[]
-    | "○ \(.localBeadId // .id) [P\(.priority)] - \(.subject)  blocked by: \(.blockedBy | join(", "))"
+    | "⊘ \(.localBeadId // .id) [P\(.priority)] - \(.subject)  blocked by: \(if ((.blockedBy // []) | length) > 0 then (.blockedBy | join(", ")) else "(none listed)" end)"
   '
 }
 
@@ -1785,8 +1907,8 @@ dd_project_create() {
 
 dd_project_list() {
   local projects
-  projects=$(dd_api GET "/projects" 2>/dev/null) || {
-    echo "Failed to fetch projects. Are you logged in? Run: devdash login" >&2
+  projects=$(dd_api GET "/projects") || {
+    echo "Failed to fetch projects (see error above). Check setup with: devdash doctor" >&2
     exit "$DD_EXIT_API"
   }
   echo "$projects" | jq -r '.[] | "\(.id)  \(.name)  (\(.githubRepo // "no repo"))"'
@@ -1830,6 +1952,8 @@ dd_project_delete() {
 
 dd_doctor() {
   local ok=true
+  dd_deprecation_notice
+  echo ""
   echo "devdash doctor — checking prerequisites"
   echo ""
   for cmd in curl jq openssl python3 git; do
@@ -1842,37 +1966,44 @@ dd_doctor() {
   done
   echo ""
   # Check config
-  if [ -f "$DD_TOKEN_FILE" ]; then
-    echo "  ✓ auth token: ${DD_TOKEN_FILE}"
+  local token_source
+  token_source=$(dd_token_source)
+  if [ -n "$token_source" ]; then
+    echo "  ✓ auth token: ${token_source}"
   else
-    echo "  ○ auth token: not found (run 'devdash login')"
+    echo "  ✗ auth token: not found (checked DEVDASH_TOKEN env var and ${DD_TOKEN_FILE})"
+    echo "      fix: devdash login  |  devdash login --token=dd_...  |  see 'devdash help auth'"
+    ok=false
   fi
   if [ -f "$DD_PROJECT_FILE" ]; then
     echo "  ✓ project config: ${DD_PROJECT_FILE}"
+  elif [ -n "${DD_PROJECT_ID:-}" ]; then
+    echo "  ✓ project: DD_PROJECT_ID=${DD_PROJECT_ID}"
   else
-    echo "  ○ project config: not found (run 'devdash init')"
+    echo "  ○ project config: not found (run 'devdash init' or 'devdash project create')"
   fi
   # Check server connectivity + auth
-  if [ -f "$DD_TOKEN_FILE" ]; then
-    local api_base
-    api_base=$(dd_api_url 2>/dev/null) || api_base=""
-    if [ -n "$api_base" ]; then
-      local token health_code auth_code
-      token=$(cat "$DD_TOKEN_FILE")
-      health_code=$(curl -s -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
-      if [ "$health_code" = "200" ]; then
-        echo "  ✓ server: ${api_base} (reachable)"
-        auth_code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
+  local api_base
+  api_base=$(dd_api_url 2>/dev/null) || api_base=""
+  if [ -n "$api_base" ]; then
+    local health_code auth_code
+    health_code=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
+    if [ "$health_code" = "200" ]; then
+      echo "  ✓ server: ${api_base} (reachable)"
+      if [ -n "$token_source" ]; then
+        local token
+        token=$(dd_get_token)
+        auth_code=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
         if [ "$auth_code" -ge 200 ] && [ "$auth_code" -lt 300 ]; then
           echo "  ✓ auth: token accepted"
         else
-          echo "  ✗ auth: token rejected (HTTP ${auth_code}) — run 'devdash login'"
+          echo "  ✗ auth: token rejected (HTTP ${auth_code}) — run 'devdash login' or 'devdash login --token=dd_...'"
           ok=false
         fi
-      else
-        echo "  ✗ server: ${api_base} (HTTP ${health_code})"
-        ok=false
       fi
+    else
+      echo "  ✗ server: ${api_base} (HTTP ${health_code}, unreachable)"
+      ok=false
     fi
   fi
   echo ""
@@ -1885,7 +2016,12 @@ dd_doctor() {
     echo "  ○ dd alias: not set (run 'devdash alias-setup' to configure)"
   fi
   echo ""
-  $ok && echo "All good!" || echo "Missing dependencies above."
+  if $ok; then
+    echo "All good!"
+  else
+    echo "Not ready — fix the ✗ items above."
+    exit "$DD_EXIT_CONFIG"
+  fi
 }
 
 dd_maybe_offer_alias() {
@@ -2341,7 +2477,7 @@ dd_prime() {
 
   # Gather project context if available
   local project_header=""
-  if [ -f "$DD_PROJECT_FILE" ] && [ -f "$DD_TOKEN_FILE" ]; then
+  if [ -f "$DD_PROJECT_FILE" ] && dd_has_token; then
     local pid
     pid=$(jq -r '.project_id // empty' "$DD_PROJECT_FILE" 2>/dev/null)
     if [ -n "$pid" ]; then
@@ -2915,7 +3051,10 @@ dd_token_dispatch() {
         echo "No API tokens. Create one with: devdash token create \"my token\""
         return
       fi
-      echo "$tokens" | dd_jq -r '.[] | "\(if .revoked_at then "✗" else "✓" end) \(.token_prefix)...  \(.name)  (created \(.created_at // "?"))\(if .revoked_at then "  [revoked]" else "" end)  id:\(.id[0:8])"'
+      # API returns camelCase (tokenPrefix, createdAt, revokedAt); snake_case kept for older servers
+      echo "$tokens" | dd_jq -r '.[]
+        | (.revokedAt // .revoked_at) as $revoked
+        | "\(if $revoked then "✗" else "✓" end) \(.tokenPrefix // .token_prefix // "?")...  \(.name)  (created \((.createdAt // .created_at // "?") | tostring | .[0:10]))\(if $revoked then "  [revoked]" else "" end)  id:\(.id[0:8])"'
       ;;
     revoke)
       if [ -z "${1:-}" ]; then
@@ -3240,40 +3379,13 @@ Report is fire-and-forget — if it fails, nothing breaks. **Always report befor
 TOPIC
 }
 
-dd_help() {
-  # Dispatch to topic if provided
-  case "${1:-}" in
-    cli)       dd_help_cli; return 0 ;;
-    workflow)  dd_help_workflow; return 0 ;;
-    close)     dd_help_close; return 0 ;;
-    pr)        dd_help_pr; return 0 ;;
-    projects)  dd_help_projects; return 0 ;;
-    report)    dd_help_report; return 0 ;;
-    "") ;;  # fall through to full help
-    *) echo "Unknown topic: $1. Topics: cli, workflow, close, pr, projects, report" >&2; return 1 ;;
-  esac
-
-  local cmd
-  cmd=$(dd_cmd_name)
-  local close_gate
-  close_gate=$(dd_close_gate)
-  local workflow_rule tool_ordering
-  if [ "$close_gate" = "commit" ]; then
-    workflow_rule="close after git commit succeeds. NEVER close in parallel with git commit."
-    tool_ordering="git commit FIRST, then ${cmd} close (sequentially)."
-  else
-    workflow_rule="close after git push succeeds. NEVER close in parallel with git push."
-    tool_ordering="git commit+push FIRST, then ${cmd} close (sequentially)."
-  fi
-  cat <<HELP
-devdash — Dev-Dash CLI
-
-Usage: ${cmd} <command> [args]
-
-Commands:
+dd_help_commands() {
+  cat <<'CMDS'
   login [--no-browser]   Authenticate via browser (stores token locally)
+  login --token=<token>  Save an existing API token (headless/CI; or --with-token
+                         to read it from stdin). See: help auth
   init                   Link current repo to a dev-dash project
-  token create "name"    Create a new API token (dd_ prefix, for DD Red etc.)
+  token create "name"    Create a new API token (dd_ prefix) for headless/CI use
   token list             List your API tokens
   token revoke <id>      Revoke an API token
   project create         Create a new project (--name, --repo, --description)
@@ -3301,6 +3413,7 @@ Commands:
                           --summary, --files-changed, --branch, --commit, --error)
   delete <id> [--force] [--cascade]
                          Delete a bead (--cascade deletes children too)
+  score [<bead-id>]      Score automability/complexity (all unscored beads if no id)
   analyze <bead-id>      Analyze a bead: complexity, files, agent instructions
   dispatch <bead-id>     Dispatch a bead as an agent job (--priority, --worker)
   diagnose <id>          Investigate bead: status, job history, failure details
@@ -3330,7 +3443,114 @@ Commands:
                          (--dry-run to preview, --force to skip confirmation)
   self-update            Update devdash to the latest version
   version                Show version
-  help [topic]           Show this help, or a topic: cli, workflow, close, pr, projects, report
+  help [topic|command]   Show this help, a topic (auth, cli, workflow, close, pr,
+                         projects, report), or help for one command
+CMDS
+}
+
+# Print help for a single command, taken from the main command list.
+dd_cmd_help() {
+  local name="$1" lines
+  lines=$(dd_help_commands | awk -v n="$name" '
+    /^  [^ ]/ { show = ($1 == n) }
+    /^     / { if (show) print; next }
+    show { print }')
+  if [ -z "$lines" ]; then
+    return 1
+  fi
+  # First line's synopsis (text before the description column)
+  local synopsis
+  synopsis=$(echo "$lines" | head -1 | sed -E 's/^  //; s/ {2,}.*$//')
+  echo "Usage: devdash ${synopsis}"
+  echo ""
+  echo "$lines"
+  echo ""
+  case "$name" in
+    login|token) echo "More: devdash help auth" ;;
+    close|report|pr|workflow) echo "More: devdash help ${name}" ;;
+    project) echo "More: devdash help projects" ;;
+  esac
+  echo "Global flags: --project=<id>, --help. All commands: devdash help"
+}
+
+dd_help_auth() {
+  cat <<'AUTH'
+Authentication
+
+devdash needs an API token. Pick whichever fits your environment:
+
+  1. Browser (interactive, default)
+       devdash login                 Opens Google sign-in, saves the token
+       devdash login --no-browser    Prints the URL instead of opening it
+                                     (browser must be on this same machine:
+                                     it calls back to localhost:18787-18792)
+
+  2. Existing API token (headless machines, CI, coding agents)
+       devdash login --token=dd_...              Verify and save the token
+       echo "$TOKEN" | devdash login --with-token  Same, read from stdin
+                                                 (keeps it out of shell history)
+
+  3. Environment variable (nothing written to disk)
+       export DEVDASH_TOKEN=dd_...
+
+Getting a token: run 'devdash token create "my laptop"' on a machine that
+is already logged in, or create one in the web app under Settings.
+
+Where tokens live:
+  DEVDASH_TOKEN env var wins if set; otherwise the token file at
+  ~/.config/dev-dash/token (override with DD_TOKEN_FILE or DD_CONFIG_DIR).
+
+Check it worked:   devdash doctor
+Manage tokens:     devdash token list | devdash token revoke <id>
+Log out:           rm ~/.config/dev-dash/token  (and revoke the token)
+AUTH
+}
+
+dd_help() {
+  # Dispatch to topic if provided
+  case "${1:-}" in
+    cli)       dd_help_cli; return 0 ;;
+    workflow)  dd_help_workflow; return 0 ;;
+    close)     dd_help_close; return 0 ;;
+    pr)        dd_help_pr; return 0 ;;
+    projects)  dd_help_projects; return 0 ;;
+    report)    dd_help_report; return 0 ;;
+    auth|login|token) dd_help_auth; return 0 ;;
+    "") ;;  # fall through to full help
+    *)
+      dd_cmd_help "$1" && return 0
+      echo "Unknown topic or command: $1. Topics: auth, cli, workflow, close, pr, projects, report" >&2
+      echo "Or run 'devdash help <command>', e.g. 'devdash help create'." >&2
+      return 1 ;;
+  esac
+
+  local cmd
+  cmd=$(dd_cmd_name)
+  local close_gate
+  close_gate=$(dd_close_gate)
+  local workflow_rule tool_ordering
+  if [ "$close_gate" = "commit" ]; then
+    workflow_rule="close after git commit succeeds. NEVER close in parallel with git commit."
+    tool_ordering="git commit FIRST, then ${cmd} close (sequentially)."
+  else
+    workflow_rule="close after git push succeeds. NEVER close in parallel with git push."
+    tool_ordering="git commit+push FIRST, then ${cmd} close (sequentially)."
+  fi
+  local preferred_cmd
+  if [ "$cmd" = "devdash" ]; then
+    preferred_cmd="'devdash'. Use 'dd' if aliased."
+  else
+    preferred_cmd="'${cmd}' (or 'devdash')."
+  fi
+  dd_deprecation_notice
+  echo "" >&2
+  cat <<HELP
+devdash — Dev-Dash CLI
+
+Usage: ${cmd} <command> [args]
+
+Commands:
+$(dd_help_commands)
 
 Global flags:
   --project=<id>         Override project for this command (UUID or prefix)
@@ -3368,7 +3588,7 @@ What to store in agent memory:
 
   - Project IDs: run '${cmd} project list' and save the ID + name table.
     Use DD_PROJECT_ID=<id> to target a specific project without 'init'.
-  - Preferred command: '${cmd}' (or 'devdash'). Use 'dd' if aliased.
+  - Preferred command: ${preferred_cmd}
   - Workflow rules: always create issue before coding, mark in_progress,
     ${workflow_rule}
   - Priority scale: 0-4 integers, NOT strings like "high"/"medium"/"low".
@@ -3379,7 +3599,7 @@ What to store in agent memory:
 HELP
 
   # Append live project list if authenticated
-  if [ -f "$DD_TOKEN_FILE" ]; then
+  if dd_has_token; then
     local projects
     projects=$(dd_api GET "/projects" 2>/dev/null) || true
     if [ -n "$projects" ] && [ "$projects" != "[]" ]; then
@@ -3403,6 +3623,63 @@ for _arg in "$@"; do
   esac
 done
 set -- "${_args[@]+"${_args[@]}"}"
+
+# Flags each command accepts (names only; values are passed as --flag=value).
+# Commands not listed take no flags.
+dd_cmd_flags() {
+  case "$1" in
+    login)    echo "--no-browser --token --with-token" ;;
+    project)  echo "--name --repo --description --force -f" ;;
+    list)     echo "--status --since --parent" ;;
+    ready|stale) echo "--since" ;;
+    create)   echo "--title --type --priority --description --parent --due --estimate" ;;
+    update)   echo "--status --priority --owner --title --description --pre-instructions --parent --due --estimate" ;;
+    close)    echo "--pr --commit --summary" ;;
+    report)   echo "--status --summary --files-changed --branch --commit --error" ;;
+    delete)   echo "--force -f --cascade" ;;
+    dispatch) echo "--priority --worker" ;;
+    comment)  echo "--body" ;;
+    activity) echo "--limit" ;;
+    jobs)     echo "--bead --tail" ;;
+    reconcile-tasks) echo "--dry-run --auto-fix --json" ;;
+    import)   echo "--all --state" ;;
+    admin)    echo "--confirm --user-id" ;;
+    agent-setup) echo "--agent --all --force --close-on" ;;
+    uninstall)   echo "--dry-run --force" ;;
+  esac
+}
+
+# Per-command --help, and reject unknown flags before running anything
+_dd_cmd="${1:-help}"
+case "$_dd_cmd" in
+  help|--help|-h|version|--version|-v) ;;
+  -*) ;;  # handled as unknown command below
+  *)
+    # Only known commands (those listed in help); unknown ones error below
+    if [ $# -gt 1 ] && dd_cmd_help "$_dd_cmd" >/dev/null; then
+      for _arg in "${@:2}"; do
+        if [ "$_arg" = "--help" ] || [ "$_arg" = "-h" ]; then
+          dd_cmd_help "$_dd_cmd"
+          exit 0
+        fi
+      done
+      _allowed=" $(dd_cmd_flags "$_dd_cmd") "
+      for _arg in "${@:2}"; do
+        case "$_arg" in
+          --?*|-[a-zA-Z])
+            _flag="${_arg%%=*}"
+            if [[ "$_allowed" != *" ${_flag} "* ]]; then
+              echo "Error: unknown flag for $_dd_cmd: $(dd_mask_secrets "$_flag")" >&2
+              echo "" >&2
+              dd_cmd_help "$_dd_cmd" >&2
+              exit "$DD_EXIT_USER"
+            fi
+            ;;
+        esac
+      done
+    fi
+    ;;
+esac
 
 case "${1:-help}" in
   login)   shift; dd_login "$@" ;;
@@ -3464,5 +3741,5 @@ case "${1:-help}" in
   self-update) dd_self_update ;;
   version|--version|-v) dd_version ;;
   help|--help|-h) shift; dd_help "$@" ;;
-  *) echo "Unknown command: $1. Run 'devdash help' for usage." >&2; exit "$DD_EXIT_USER" ;;
+  *) echo "Unknown command: $(dd_mask_secrets "$1"). Run 'devdash help' for usage." >&2; exit "$DD_EXIT_USER" ;;
 esac

@@ -196,3 +196,47 @@ assert_contains "no-token shows login prompt" "devdash login" \
 assert_exit "no-token exits 3 (config error)" 3 \
   env DD_CONFIG_DIR="$_tmp_config_dir" DD_TOKEN_FILE="$_tmp_token_file" bash -c "cd '$_tmp_dir' && '$DEVDASH' list"
 rm -rf "$_tmp_dir" "$_tmp_config_dir"
+
+# ── Help & flag validation ──────────────────────────
+echo "-- per-command help --"
+assert_exit "login --help exits 0 (does not start login)" 0 "$DEVDASH" login --help
+assert_contains "login --help mentions --token" "login --token" "$DEVDASH" login --help
+assert_contains "token --help lists revoke" "token revoke" "$DEVDASH" token --help
+assert_contains "help login shows auth topic" "DEVDASH_TOKEN" "$DEVDASH" help login
+assert_contains "help auth shows token login" "login --token" "$DEVDASH" help auth
+assert_contains "help <command> works" "Usage: devdash create" "$DEVDASH" help create
+assert_contains "help lists score" "score" "$DEVDASH" help
+assert_exit "help unknown topic exits 1" 1 "$DEVDASH" help xyzzy
+assert_exit "unknown command with --help still exits 1" 1 "$DEVDASH" xyzzy --help
+
+echo "-- unknown flags --"
+assert_exit "unknown flag exits 1" 1 "$DEVDASH" doctor --verbose
+assert_contains "unknown flag names the flag" "unknown flag for list: --bogus" "$DEVDASH" list --bogus
+assert_contains "unknown flag shows usage" "Usage: devdash list" "$DEVDASH" list --bogus
+assert_not_contains "unknown command masks token" "dd_abcdef0123456789" "$DEVDASH" --token=dd_abcdef0123456789
+assert_not_contains "unknown flag masks token" "dd_abcdef0123456789" "$DEVDASH" list --dd_abcdef0123456789
+assert_not_contains "login positional masks token" "dd_abcdef0123456789" "$DEVDASH" login dd_abcdef0123456789
+assert_exit "login positional arg exits 1" 1 "$DEVDASH" login dd_abcdef0123456789
+
+echo "-- auth hints --"
+_auth_cfg="$(mktemp -d)"
+assert_contains "no-token hint mentions login --token" "login --token" \
+  env DD_CONFIG_DIR="$_auth_cfg" DD_TOKEN_FILE="${_auth_cfg}/token" "$DEVDASH" token list
+assert_contains "doctor reports missing token as failure" "✗ auth token" \
+  env DD_CONFIG_DIR="$_auth_cfg" DD_TOKEN_FILE="${_auth_cfg}/token" "$DEVDASH" doctor
+assert_not_contains "doctor without token is not 'All good'" "All good" \
+  env DD_CONFIG_DIR="$_auth_cfg" DD_TOKEN_FILE="${_auth_cfg}/token" "$DEVDASH" doctor
+assert_exit "doctor without token exits 3" 3 \
+  env DD_CONFIG_DIR="$_auth_cfg" DD_TOKEN_FILE="${_auth_cfg}/token" "$DEVDASH" doctor
+assert_contains "doctor reports DEVDASH_TOKEN source" "DEVDASH_TOKEN env var" \
+  env DD_CONFIG_DIR="$_auth_cfg" DD_TOKEN_FILE="${_auth_cfg}/token" DEVDASH_TOKEN=x "$DEVDASH" doctor
+rm -rf "$_auth_cfg"
+
+echo "-- help text --"
+assert_not_contains "help has no 'devdash (or devdash)' typo" "'devdash' (or 'devdash')" "$DEVDASH" help
+assert_contains "help names preferred command" "Preferred command: 'devdash'. Use 'dd' if aliased." "$DEVDASH" help
+
+echo "-- deprecation notice --"
+assert_contains "version prints deprecation notice" "deprecated" bash -c "'$DEVDASH' version 2>&1"
+assert_not_contains "deprecation notice stays off stdout" "deprecated" bash -c "'$DEVDASH' version 2>/dev/null"
+assert_contains "help points to Go CLI" "devdashproject/devdash-cli" bash -c "'$DEVDASH' help 2>&1"

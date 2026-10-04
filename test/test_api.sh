@@ -253,11 +253,11 @@ setup_api_test
 output=$(run_dd delete --force aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
 assert_contains "delete --force shows Deleted" "Deleted" echo "$output"
 assert_api_called "delete calls DELETE /beads" "DELETE" "/beads/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-# Verify delete URL does NOT include projectId (regression: caused 404)
-if grep -F "DELETE" "${MOCK_CURL_LOG}.urls" | grep -qF "projectId"; then
-  fail "delete URL excludes projectId (found projectId in URL)"
+# Server requires projectId in the query string (400 without it)
+if grep -F "DELETE" "${MOCK_CURL_LOG}.urls" | grep -qF "projectId=95ca3de0-7e4f-4f9e-9b17-36f5609cfa11"; then
+  pass "delete URL includes projectId"
 else
-  pass "delete URL excludes projectId"
+  fail "delete URL includes projectId"
 fi
 teardown_api_test
 
@@ -372,6 +372,13 @@ assert_contains "activity shows action" "created" echo "$output"
 assert_contains "activity shows actor" "Jason" echo "$output"
 assert_contains "activity shows artifact" "Test task" echo "$output"
 assert_api_called "activity calls GET" "GET" "/projects/95ca3de0-7e4f-4f9e-9b17-36f5609cfa11/activity"
+teardown_api_test
+
+# activity --limit is a flag, not a bead ID
+setup_api_test
+assert_exit "activity --limit=5 exits 0" 0 run_dd activity --limit=5
+assert_contains "activity --limit passes limit" "activity?limit=5" cat "${MOCK_CURL_LOG}.urls"
+assert_exit "activity --limit=abc exits 1" 1 run_dd activity --limit=abc
 teardown_api_test
 
 # ── bulk close ──────────────────────────────────────
@@ -559,4 +566,99 @@ setup_api_test
 output=$(run_dd jobs log 22222222-2222-2222-2222-222222222222 2>&1) || true
 assert_contains "jobs log full shows first line" "line1" echo "$output"
 assert_contains "jobs log full shows last line" "line30" echo "$output"
+teardown_api_test
+
+# ── token auth ──────────────────────────────────────
+echo "-- token auth --"
+
+# DEVDASH_TOKEN env var works without a token file
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+output=$(cd "$_MOCK_WORKDIR" && DEVDASH_TOKEN=dd_envtoken "$DEVDASH" list 2>&1) || true
+assert_contains "DEVDASH_TOKEN env var authenticates" "dev-dash-1" echo "$output"
+teardown_api_test
+
+# login --token verifies and saves the token
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+assert_exit "login --token exits 0" 0 run_dd login --token=dd_newtoken123
+assert_contains "login --token saves token" "dd_newtoken123" cat "$DD_TOKEN_FILE"
+assert_api_called "login --token verifies via GET /projects" "GET" "/projects"
+teardown_api_test
+
+# login --token <value> (space-separated)
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+assert_exit "login --token <value> exits 0" 0 run_dd login --token dd_spacetoken1
+assert_contains "login --token <value> saves token" "dd_spacetoken1" cat "$DD_TOKEN_FILE"
+teardown_api_test
+
+# login --with-token reads stdin
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+output=$(cd "$_MOCK_WORKDIR" && echo "dd_stdintoken1" | "$DEVDASH" login --with-token 2>&1) || true
+assert_contains "login --with-token saves token" "dd_stdintoken1" cat "$DD_TOKEN_FILE"
+assert_not_contains "login --with-token does not echo token" "dd_stdintoken1" echo "$output"
+teardown_api_test
+
+# login --token with a rejected token saves nothing
+setup_api_test
+rm -f "$DD_TOKEN_FILE"
+_reject_dir=$(mktemp -d)
+cp "${TEST_DIR}/fixtures/error_401.json" "${_reject_dir}/GET_projects.json"
+echo "401" > "${_reject_dir}/GET_projects.status"
+export MOCK_CURL_FIXTURE_DIR="$_reject_dir"
+assert_exit "login --token rejected exits 2" 2 run_dd login --token=dd_badtoken123
+if [ -f "$DD_TOKEN_FILE" ]; then fail "rejected token not saved"; else pass "rejected token not saved"; fi
+rm -rf "$_reject_dir"
+teardown_api_test
+
+# ── token list ──────────────────────────────────────
+echo "-- token list --"
+setup_api_test
+output=$(run_dd token list 2>&1) || true
+assert_contains "token list shows prefix" "dd_abc1234..." echo "$output"
+assert_contains "token list shows created date" "(created 2026-09-01)" echo "$output"
+assert_contains "token list marks revoked token" "✗ dd_def5678...  old ci" echo "$output"
+assert_contains "token list shows revoked tag" "[revoked]" echo "$output"
+assert_contains "token list shows active token" "✓ dd_abc1234...  laptop" echo "$output"
+assert_not_contains "token list has no null prefix" "null..." echo "$output"
+teardown_api_test
+
+# ── server "blocked" status ─────────────────────────
+echo "-- server blocked status --"
+setup_api_test
+_blk_dir=$(mktemp -d)
+cp "${TEST_DIR}/fixtures/"*.json "$_blk_dir/"
+# dev-dash-1 gets status "blocked" from the server (as after dep add)
+jq '.data |= map(if .localBeadId == "dev-dash-1" then .status = "blocked" | .blockedBy = ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"] else . end)' \
+  "${TEST_DIR}/fixtures/GET_beads.json" > "${_blk_dir}/GET_beads.json"
+export MOCK_CURL_FIXTURE_DIR="$_blk_dir"
+output=$(run_dd blocked 2>&1) || true
+assert_contains "blocked shows server-blocked bead" "dev-dash-1" echo "$output"
+assert_contains "blocked still shows pending bead with open deps" "dev-dash-3" echo "$output"
+output=$(run_dd stats 2>&1) || true
+assert_contains "stats counts server-blocked beads" "Blocked:     2" echo "$output"
+output=$(run_dd list 2>&1) || true
+assert_contains "list shows blocked icon" "⊘ dev-dash-1" echo "$output"
+assert_not_contains "list has no unknown-status ?" "? dev-dash" echo "$output"
+rm -rf "$_blk_dir"
+teardown_api_test
+
+# ── activity <id> filters to that bead ──────────────
+echo "-- activity <id> --"
+setup_api_test
+_act_dir=$(mktemp -d)
+cp "${TEST_DIR}/fixtures/"*.json "$_act_dir/"
+# Server ignores targetId today, so the CLI must filter client-side
+jq '.data[0].targetId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" | .data[1].targetId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"' \
+  "${TEST_DIR}/fixtures/GET_projects_ID_activity.json" > "${_act_dir}/GET_projects_ID_activity.json"
+export MOCK_CURL_FIXTURE_DIR="$_act_dir"
+output=$(run_dd activity aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa 2>&1) || true
+assert_contains "activity <id> shows that bead's events" "Test task" echo "$output"
+assert_not_contains "activity <id> hides other beads' events" "Bug fix" echo "$output"
+assert_contains "activity <id> sends targetId" "targetId=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" cat "${MOCK_CURL_LOG}.urls"
+output=$(run_dd activity --limit=1 2>&1) || true
+assert_not_contains "activity --limit=1 caps output" "Bug fix" echo "$output"
+rm -rf "$_act_dir"
 teardown_api_test
