@@ -38,18 +38,17 @@ dd_frontend_url() {
 }
 
 dd_api_url() {
-  local url=""
-  if [ -f "$DD_PROJECT_FILE" ]; then
-    url=$(jq -r '.api_url // empty' "$DD_PROJECT_FILE" 2>/dev/null)
+  # Repository configuration is untrusted: only project_id is read from .devdash.
+  # A user may choose a different API origin explicitly with DD_API_URL.
+  local url="${DD_API_URL:-https://devdash-prime.up.railway.app}"
+  if [[ "$url" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$ ]] ||
+     [[ "$url" =~ ^https://\[[0-9A-Fa-f:]+\](:[0-9]{1,5})?$ ]] ||
+     [[ "$url" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$ ]]; then
+    printf '%s\n' "$url"
+    return 0
   fi
-  url="${url:-${DD_API_URL:-https://devdash-prime.up.railway.app}}"
-
-  # Enforce HTTPS (allow http only for localhost/127.0.0.1 dev)
-  if [[ "$url" == http://* ]] && [[ "$url" != http://localhost* ]] && [[ "$url" != http://127.0.0.1* ]]; then
-    echo "Warning: API URL uses insecure HTTP: $url" >&2
-    echo "Set a https:// URL or use http://localhost for local dev." >&2
-  fi
-  echo "$url"
+  echo "Error: DD_API_URL must be an HTTPS origin (HTTP is allowed only for loopback)." >&2
+  return "$DD_EXIT_CONFIG"
 }
 
 # Convert --since value (2w, 3d, 1h, YYYY-MM-DD) to ISO datetime string
@@ -205,16 +204,17 @@ dd_mask_secrets() {
 dd_api() {
   local method=$1 endpoint=$2
   shift 2
-  local token url tmpfile http_code body
+  local token api_url url tmpfile http_code body
   token=$(dd_get_token) || return $?
-  url="$(dd_api_url)/api${endpoint}"
+  api_url=$(dd_api_url) || return $?
+  url="${api_url}/api${endpoint}"
   tmpfile=$(mktemp)
-  http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X "$method" \
+  http_code=$(curl -q -s --max-redirs 0 -o "$tmpfile" -w '%{http_code}' -X "$method" \
     -H "Authorization: Bearer ${token}" \
     -H "Content-Type: application/json" \
     "$url" "$@" 2>/dev/null) || {
     rm -f "$tmpfile"
-    echo "Error: could not connect to $(dd_api_url)" >&2
+    echo "Error: could not connect to ${api_url}" >&2
     exit "$DD_EXIT_API"
   }
   body=$(cat "$tmpfile")
@@ -347,8 +347,8 @@ dd_version() {
 # Save a token after verifying the API accepts it (non-interactive login)
 dd_login_with_token() {
   local token="$1" api_url code
-  api_url=$(dd_api_url)
-  code=$(curl -s --max-time 15 -o /dev/null -w '%{http_code}' \
+  api_url=$(dd_api_url) || return $?
+  code=$(curl -q -s --max-redirs 0 --max-time 15 -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer ${token}" "${api_url}/api/projects" 2>/dev/null) || code="000"
   if [ "$code" = "000" ]; then
     echo "Error: could not connect to ${api_url} to verify the token. Nothing was saved." >&2
@@ -419,7 +419,7 @@ dd_login() {
   local tmpfile
   tmpfile=$(mktemp)
   local api_url
-  api_url=$(dd_api_url)
+  api_url=$(dd_api_url) || return $?
 
   # Find an available port (try 18787-18792)
   local port=""
@@ -671,9 +671,7 @@ dd_init() {
   if [ -z "$pname" ]; then
     pname=$(dd_api GET "/projects/${pid}" | jq -r '.name' 2>/dev/null)
   fi
-  local api_url
-  api_url=$(dd_api_url)
-  jq -n --arg url "$api_url" --arg pid "$pid" '{api_url: $url, project_id: $pid}' > "$DD_PROJECT_FILE"
+  jq -n --arg pid "$pid" '{project_id: $pid}' > "$DD_PROJECT_FILE"
   echo "Initialized: ${pname} -> .devdash"
 
   dd_maybe_offer_alias
@@ -1898,9 +1896,7 @@ dd_project_create() {
 
   # Auto-write .devdash if in a git repo
   if git rev-parse --is-inside-work-tree &>/dev/null && [ ! -f "$DD_PROJECT_FILE" ]; then
-    local api_url
-    api_url=$(dd_api_url)
-    echo "{\"api_url\": \"${api_url}\", \"project_id\": \"${id}\"}" > "$DD_PROJECT_FILE"
+    jq -n --arg pid "$id" '{project_id: $pid}' > "$DD_PROJECT_FILE"
     echo "Linked: .devdash -> ${id}"
   fi
 }
@@ -1984,16 +1980,19 @@ dd_doctor() {
   fi
   # Check server connectivity + auth
   local api_base
-  api_base=$(dd_api_url 2>/dev/null) || api_base=""
+  if ! api_base=$(dd_api_url); then
+    ok=false
+    api_base=""
+  fi
   if [ -n "$api_base" ]; then
     local health_code auth_code
-    health_code=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
+    health_code=$(curl -q -s --max-redirs 0 --max-time 10 -o /dev/null -w '%{http_code}' "${api_base}/api/health" 2>/dev/null) || health_code="000"
     if [ "$health_code" = "200" ]; then
       echo "  ✓ server: ${api_base} (reachable)"
       if [ -n "$token_source" ]; then
         local token
         token=$(dd_get_token)
-        auth_code=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
+        auth_code=$(curl -q -s --max-redirs 0 --max-time 10 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}" "${api_base}/api/projects" 2>/dev/null) || auth_code="000"
         if [ "$auth_code" -ge 200 ] && [ "$auth_code" -lt 300 ]; then
           echo "  ✓ auth: token accepted"
         else
@@ -3107,7 +3106,7 @@ dd_admin_reset_user() {
   fi
 
   local api_url
-  api_url=$(dd_api_url)
+  api_url=$(dd_api_url) || return $?
 
   if [ "$confirm" != true ]; then
     echo "This will DELETE all projects, beads, jobs, credentials, and sessions for user: ${user_id}"
@@ -3123,7 +3122,7 @@ dd_admin_reset_user() {
 
   local tmpfile http_code body
   tmpfile=$(mktemp)
-  http_code=$(curl -s -o "$tmpfile" -w '%{http_code}' -X POST \
+  http_code=$(curl -q -s --max-redirs 0 -o "$tmpfile" -w '%{http_code}' -X POST \
     -H "x-admin-secret: ${admin_secret}" \
     -H "Content-Type: application/json" \
     "${api_url}/api/admin/reset-user/${user_id}" 2>/dev/null) || {

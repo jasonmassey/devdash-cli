@@ -150,22 +150,27 @@ _https_dir="$(mktemp -d)"
 _https_config="$(mktemp -d)"
 echo "mock-token" > "${_https_config}/token"
 
-# HTTP non-localhost should warn
-echo '{"project_id":"test","api_url":"http://example.com"}' > "${_https_dir}/.devdash"
-assert_contains "HTTP non-localhost warns" "insecure HTTP" \
+# Non-loopback HTTP is rejected before any API request.
+echo '{"project_id":"test"}' > "${_https_dir}/.devdash"
+assert_exit "HTTP non-loopback rejected" 3 \
   env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="http://example.com" \
   bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
 
-# HTTP localhost should NOT warn
-echo '{"project_id":"test","api_url":"http://localhost:9999"}' > "${_https_dir}/.devdash"
-assert_not_contains "HTTP localhost no warning" "insecure HTTP" \
+# Lookalike loopback host is also rejected.
+assert_exit "HTTP localhost lookalike rejected" 3 \
   env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="http://localhost.attacker.example" \
   bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
 
-# HTTPS should NOT warn
-echo '{"project_id":"test","api_url":"https://example.com"}' > "${_https_dir}/.devdash"
-assert_not_contains "HTTPS no warning" "insecure HTTP" \
+# Origin only: reject userinfo, paths and query strings.
+assert_exit "API URL with userinfo rejected" 3 \
   env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="https://user@example.com" \
+  bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
+assert_exit "API URL with path rejected" 3 \
+  env DD_CONFIG_DIR="$_https_config" DD_TOKEN_FILE="${_https_config}/token" \
+  DD_API_URL="https://example.com/path" \
   bash -c "cd '$_https_dir' && '$DEVDASH' list 2>&1"
 
 rm -rf "$_https_dir" "$_https_config"

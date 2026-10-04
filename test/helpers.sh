@@ -98,7 +98,8 @@ setup_api_test() {
   echo "mock-token-for-testing" > "$DD_TOKEN_FILE"
 
   # Write .devdash project file in the working directory
-  echo '{"api_url":"http://localhost:9999","project_id":"95ca3de0-7e4f-4f9e-9b17-36f5609cfa11"}' > "${_MOCK_WORKDIR}/.devdash"
+  echo '{"project_id":"95ca3de0-7e4f-4f9e-9b17-36f5609cfa11"}' > "${_MOCK_WORKDIR}/.devdash"
+  export DD_API_URL="http://localhost:9999"
 
   # Mock curl setup
   export MOCK_CURL_FIXTURE_DIR="${TEST_DIR}/fixtures"
@@ -113,7 +114,7 @@ setup_api_test() {
 teardown_api_test() {
   export PATH="$_ORIG_PATH"
   rm -rf "$_MOCK_TMPDIR" "$_MOCK_WORKDIR"
-  unset MOCK_CURL_FIXTURE_DIR MOCK_CURL_LOG DD_CONFIG_DIR DD_TOKEN_FILE _MOCK_TMPDIR _MOCK_WORKDIR _ORIG_PATH
+  unset MOCK_CURL_FIXTURE_DIR MOCK_CURL_LOG DD_CONFIG_DIR DD_TOKEN_FILE DD_API_URL _MOCK_TMPDIR _MOCK_WORKDIR _ORIG_PATH
 }
 
 # Run devdash in the mock working directory

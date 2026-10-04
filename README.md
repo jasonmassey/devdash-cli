@@ -148,7 +148,7 @@ cd my-project && devdash init    # Links this repo
 cd other-repo && devdash init    # Links that repo separately
 ```
 
-You can also set `DD_PROJECT_ID` and `DD_API_URL` environment variables to override. Set `DEVDASH_TOKEN` to supply an API token without a token file.
+You can set `DD_PROJECT_ID` to override the repository's project ID. The CLI takes its API origin from the built-in default, or from your explicit `DD_API_URL` environment variable. It ignores `api_url` in a repository's `.devdash` file so a cloned repository cannot choose where your bearer token is sent. `DD_API_URL` must be an HTTPS origin; plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development servers. Set `DEVDASH_TOKEN` to supply an API token without a token file.
 
 Every command accepts `--help` (e.g. `devdash login --help`), and unknown flags are rejected with the command's usage.
 
