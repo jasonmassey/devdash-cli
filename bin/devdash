@@ -414,12 +414,17 @@ dd_login() {
     return
   fi
 
-  local nonce
+  local nonce verifier challenge
   nonce=$(openssl rand -hex 16)
-  local tmpfile
-  tmpfile=$(mktemp)
+  verifier=$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n')
+  challenge=$(printf '%s' "$verifier" | openssl dgst -binary -sha256 | openssl base64 -A | tr '+/' '-_' | tr -d '=\n')
   local api_url
   api_url=$(dd_api_url) || return $?
+  local codefile readyfile responsefile
+  codefile=$(mktemp)
+  readyfile=$(mktemp)
+  responsefile=$(mktemp)
+  rm -f "$readyfile"
 
   # Find an available port (try 18787-18792)
   local port=""
@@ -430,52 +435,43 @@ dd_login() {
     fi
   done
   if [ -z "$port" ]; then
+    rm -f "$codefile" "$readyfile" "$responsefile"
     echo "Error: all callback ports 18787-18792 are in use" >&2
     exit "$DD_EXIT_CONFIG"
   fi
 
-  # Start a temporary Python HTTP server for the OAuth callback (120s timeout)
-  python3 -c "
-import http.server, urllib.parse, threading, signal, sys
-
-# Exit cleanly on SIGTERM/SIGINT — no traceback
-signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
-signal.signal(signal.SIGINT, lambda *a: sys.exit(0))
-
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        token = (qs.get('token') or [None])[0]
-        nonce_rx = (qs.get('nonce') or [None])[0]
-        if token and nonce_rx == '${nonce}':
-            with open('${tmpfile}', 'w') as f:
-                f.write(token)
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html')
-            self.end_headers()
-            self.wfile.write(b'''<html><body style=\"font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0\">
-<div style=\"text-align:center\"><h1>Authenticated!</h1><p>You can close this tab and return to your terminal.</p></div>
-</body></html>''')
-        else:
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(b'Invalid callback')
-        threading.Thread(target=self.server.shutdown).start()
-    def log_message(self, *a): pass
-
-s = http.server.HTTPServer(('127.0.0.1', ${port}), H)
-# Auto-shutdown after 120s if no callback received (daemon so process can exit early)
-t = threading.Timer(120, s.shutdown)
-t.daemon = True
-t.start()
-s.serve_forever()
-" &
+  # Accept only the one-time code and expected nonce on loopback.
+  local callback_script script_path script_dir
+  script_path="${BASH_SOURCE[0]}"
+  while [ -L "$script_path" ]; do
+    script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+    script_path=$(readlink "$script_path")
+    [[ "$script_path" = /* ]] || script_path="${script_dir}/${script_path}"
+  done
+  callback_script="$(cd -P "$(dirname "$script_path")" && pwd)/devdash-oauth-callback.py"
+  python3 "$callback_script" "$port" "$nonce" "$codefile" "$readyfile" &
   local server_pid=$!
 
-  # Clean up server on Ctrl+C
-  trap 'printf "\nCancelled.\n"; kill $server_pid 2>/dev/null; rm -f "$tmpfile"; exit 130' INT
+  # Wait until the listener has bound before opening the browser.
+  local attempt
+  for attempt in {1..100}; do
+    [ -f "$readyfile" ] && break
+    if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+    sleep 0.05
+  done
+  if [ ! -f "$readyfile" ]; then
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+    rm -f "$codefile" "$readyfile" "$responsefile"
+    echo "Error: could not start the local callback listener" >&2
+    exit "$DD_EXIT_CONFIG"
+  fi
 
-  local url="${api_url}/api/auth/cli-token?port=${port}&nonce=${nonce}"
+  trap 'printf "\nCancelled.\n"; kill "$server_pid" 2>/dev/null || true; rm -f "$codefile" "$readyfile" "$responsefile"; exit 130' INT
+  trap 'kill "$server_pid" 2>/dev/null || true; rm -f "$codefile" "$readyfile" "$responsefile"; exit 143' TERM
+
+  local redirect_uri="http://127.0.0.1:${port}/callback"
+  local url="${api_url}/api/auth/cli-token?port=${port}&nonce=${nonce}&code_challenge=${challenge}"
   if [ "$no_browser" = true ]; then
     echo "Open this URL in your browser (e.g. incognito window):"
     echo ""
@@ -490,14 +486,34 @@ s.serve_forever()
 
   # Wait for server to exit (callback received or timeout)
   wait "$server_pid" 2>/dev/null || true
-  trap - INT
+  trap - INT TERM
+  rm -f "$readyfile"
 
-  if [ -s "$tmpfile" ]; then
+  if [ -s "$codefile" ]; then
+    local code payload http_code exchanged_token
+    code=$(cat "$codefile")
+    rm -f "$codefile"
+    payload=$(jq -nc --arg code "$code" --arg code_verifier "$verifier" \
+      --arg redirect_uri "$redirect_uri" --arg nonce "$nonce" \
+      '{code:$code,code_verifier:$code_verifier,redirect_uri:$redirect_uri,nonce:$nonce}')
+    http_code=$(printf '%s' "$payload" | curl -q -s --max-redirs 0 --connect-timeout 5 --max-time 15 \
+      -o "$responsefile" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+      --data-binary @- "${api_url}/api/auth/cli/exchange" 2>/dev/null) || http_code="000"
+    if [ "$http_code" != "200" ]; then
+      rm -f "$responsefile"
+      echo "Login code exchange failed (HTTP ${http_code}). Nothing was saved." >&2
+      exit "$DD_EXIT_API"
+    fi
+    exchanged_token=$(jq -er '.token | select(type == "string" and test("^dd_[0-9a-f]{64}$"))' "$responsefile" 2>/dev/null) || exchanged_token=""
+    rm -f "$responsefile"
+    if [ -z "$exchanged_token" ]; then
+      echo "Login code exchange returned an invalid response. Nothing was saved." >&2
+      exit "$DD_EXIT_API"
+    fi
     mkdir -p "$DD_CONFIG_DIR"
     chmod 700 "$DD_CONFIG_DIR"
-    cp "$tmpfile" "$DD_TOKEN_FILE"
+    (umask 077 && printf '%s\n' "$exchanged_token" > "$DD_TOKEN_FILE")
     chmod 600 "$DD_TOKEN_FILE"
-    rm -f "$tmpfile"
     echo "Logged in successfully! Token stored in ${DD_TOKEN_FILE}"
 
     # Auto-init if in a git repo without .devdash
@@ -506,7 +522,7 @@ s.serve_forever()
       dd_init
     fi
   else
-    rm -f "$tmpfile"
+    rm -f "$codefile" "$responsefile"
     echo "Login failed or timed out." >&2
     exit "$DD_EXIT_API"
   fi

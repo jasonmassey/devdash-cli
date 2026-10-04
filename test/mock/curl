@@ -22,6 +22,9 @@ while [ $# -gt 0 ]; do
     -o) outfile="$2"; shift 2 ;;
     -w) write_format="$2"; shift 2 ;;
     -d) body="$2"; shift 2 ;;
+    --data-binary)
+      if [ "$2" = "@-" ]; then body=$(cat); else body="$2"; fi
+      shift 2 ;;
     -H)
       case "$2" in Authorization:*|x-admin-secret:*) auth=present ;; esac
       shift 2 ;;
@@ -74,7 +77,13 @@ fi
 if [ -n "${MOCK_CURL_LOG:-}" ]; then
   if [ -n "$body" ]; then
     compact_body=$(printf '%s' "$body" | tr '\n' ' ' | sed 's/  */ /g')
-    echo "${method} ${endpoint} ${compact_body}" >> "$MOCK_CURL_LOG"
+    if [ "$endpoint" = "/auth/cli/exchange" ]; then
+      # Tests inspect the exchange payload separately; do not log verifier/code.
+      echo "${method} ${endpoint}" >> "$MOCK_CURL_LOG"
+      printf '%s\n' "$body" > "${MOCK_CURL_LOG}.exchange-body"
+    else
+      echo "${method} ${endpoint} ${compact_body}" >> "$MOCK_CURL_LOG"
+    fi
   else
     echo "${method} ${endpoint}" >> "$MOCK_CURL_LOG"
   fi
