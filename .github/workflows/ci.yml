@@ -12,6 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reject tracked recovery logs and production dumps
+        run: |
+          if [ -n "$(git ls-files -- '.recovery' ':(glob)**/prod-*.dump' ':(glob)**/prod-*.sql' ':(glob)**/prod-*.sql.gz')" ]; then
+            echo 'Tracked recovery logs or production dumps are prohibited.' >&2
+            exit 1
+          fi
+
       - name: Lint
         run: |
           sudo apt-get install -y shellcheck

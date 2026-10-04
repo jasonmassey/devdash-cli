@@ -6,3 +6,7 @@ AGENTS.md
 .cursor/
 ONBOARDING.md
 docs/
+.recovery/
+prod-*.dump
+prod-*.sql
+prod-*.sql.gz
