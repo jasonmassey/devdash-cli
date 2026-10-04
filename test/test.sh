@@ -12,5 +12,6 @@ echo ""
 source "$DIR/test_offline.sh"
 source "$DIR/test_api.sh"
 source "$DIR/test_security.sh"
+source "$DIR/test_oauth.sh"
 
 test_summary
