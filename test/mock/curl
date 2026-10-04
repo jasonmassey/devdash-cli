@@ -10,7 +10,11 @@ outfile=""
 write_format=""
 body=""
 url=""
-headers=()
+auth=absent
+redirect_limit="unset"
+curl_config="enabled"
+follow_redirect=false
+first_arg=true
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -18,12 +22,28 @@ while [ $# -gt 0 ]; do
     -o) outfile="$2"; shift 2 ;;
     -w) write_format="$2"; shift 2 ;;
     -d) body="$2"; shift 2 ;;
-    -H) headers+=("$2"); shift 2 ;;
+    -H)
+      case "$2" in Authorization:*|x-admin-secret:*) auth=present ;; esac
+      shift 2 ;;
+    -q) if [ "$first_arg" = true ]; then curl_config="disabled"; fi; shift ;;
+    --max-redirs) redirect_limit="$2"; shift 2 ;;
+    -L|--location) follow_redirect=true; shift ;;
     -s) shift ;;  # silent — ignore
     http://*|https://*) url="$1"; shift ;;
     *) shift ;;
   esac
+  first_arg=false
 done
+
+if [ -n "${MOCK_CURL_LOG:-}" ]; then
+  echo "${method} ${url} redirects=${redirect_limit} config=${curl_config} auth=${auth}" >> "${MOCK_CURL_LOG}.security"
+  # Model a configured redirect: a credential would reach the foreign host if
+  # redirects were followed. Never write the credential itself to the log.
+  if [ -n "${MOCK_CURL_REDIRECT:-}" ] && [ "$auth" = present ] &&
+     { [ "$redirect_limit" != 0 ] || [ "$curl_config" != disabled ] || [ "$follow_redirect" = true ]; }; then
+    echo "foreign-origin credential forwarding possible" >> "${MOCK_CURL_LOG}.security"
+  fi
+fi
 
 # Extract endpoint path: strip base URL, strip query params
 endpoint="${url#*//*/api}"  # e.g., /beads?projectId=...
