@@ -44,8 +44,13 @@ echo "npm not found — installing from GitHub..."
 
 mkdir -p "$INSTALL_DIR"
 
-# Download latest bin/devdash from main branch
-curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/bin/devdash" -o "${INSTALL_DIR}/devdash"
+# Download both files before replacing the installed CLI.
+install_tmp=$(mktemp -d)
+trap 'rm -rf "$install_tmp"' EXIT
+curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/bin/devdash" -o "${install_tmp}/devdash"
+curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/bin/devdash-oauth-callback.py" -o "${install_tmp}/devdash-oauth-callback.py"
+mv "${install_tmp}/devdash-oauth-callback.py" "${INSTALL_DIR}/devdash-oauth-callback.py"
+mv "${install_tmp}/devdash" "${INSTALL_DIR}/devdash"
 chmod +x "${INSTALL_DIR}/devdash"
 
 echo ""

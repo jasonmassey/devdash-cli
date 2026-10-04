@@ -10,6 +10,7 @@
   },
   "files": [
     "bin/devdash",
+    "bin/devdash-oauth-callback.py",
     "test/test.sh",
     "GETTING-STARTED.md",
     "README.md",
