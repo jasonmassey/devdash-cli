@@ -6,7 +6,14 @@ set -euo pipefail
 REPO="jasonmassey/devdash-cli"
 INSTALL_DIR="${DEVDASH_INSTALL_DIR:-${HOME}/.local/bin}"
 
-echo "Installing devdash CLI..."
+cat <<'EOF'
+NOTE: This bash devdash CLI is deprecated and no longer maintained.
+      The current CLI is the Go version: https://github.com/devdashproject/devdash-cli
+        curl -fsSL https://raw.githubusercontent.com/devdashproject/devdash-cli/main/install.sh | sh
+      Continuing with the legacy bash install...
+
+EOF
+echo "Installing devdash CLI (legacy bash version)..."
 echo ""
 
 # Check prerequisites

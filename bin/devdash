@@ -330,8 +330,18 @@ dd_cmd_name() {
 
 # ── Commands ─────────────────────────────────────────────────────
 
+# This bash CLI is superseded by the Go CLI. Printed to stderr so stdout stays parseable.
+dd_deprecation_notice() {
+  cat >&2 <<'EOF'
+Note: this bash devdash CLI is deprecated and no longer maintained.
+      Install the current Go CLI: https://github.com/devdashproject/devdash-cli
+        curl -fsSL https://raw.githubusercontent.com/devdashproject/devdash-cli/main/install.sh | sh
+EOF
+}
+
 dd_version() {
   echo "devdash ${DD_VERSION}"
+  dd_deprecation_notice
 }
 
 # Save a token after verifying the API accepts it (non-interactive login)
@@ -1942,6 +1952,8 @@ dd_project_delete() {
 
 dd_doctor() {
   local ok=true
+  dd_deprecation_notice
+  echo ""
   echo "devdash doctor — checking prerequisites"
   echo ""
   for cmd in curl jq openssl python3 git; do
@@ -3530,6 +3542,8 @@ dd_help() {
   else
     preferred_cmd="'${cmd}' (or 'devdash')."
   fi
+  dd_deprecation_notice
+  echo "" >&2
   cat <<HELP
 devdash — Dev-Dash CLI
 

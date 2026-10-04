@@ -1,5 +1,12 @@
 # devdash-cli
 
+> [!WARNING]
+> **Deprecated.** This bash CLI is no longer maintained. The current devdash CLI is the Go version at **[devdashproject/devdash-cli](https://github.com/devdashproject/devdash-cli)**, which also owns the `@devdashproject/devdash-cli` npm package.
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/devdashproject/devdash-cli/main/install.sh | sh
+> ```
+
 Dev-Dash CLI — AI-powered task tracking for coding agents.
 
 A lightweight bash CLI that wraps the [Dev-Dash](https://dev-dash-blue.vercel.app/) REST API for managing tasks, dependencies, and agent jobs from the terminal.

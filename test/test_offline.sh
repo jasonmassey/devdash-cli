@@ -235,3 +235,8 @@ rm -rf "$_auth_cfg"
 echo "-- help text --"
 assert_not_contains "help has no 'devdash (or devdash)' typo" "'devdash' (or 'devdash')" "$DEVDASH" help
 assert_contains "help names preferred command" "Preferred command: 'devdash'. Use 'dd' if aliased." "$DEVDASH" help
+
+echo "-- deprecation notice --"
+assert_contains "version prints deprecation notice" "deprecated" bash -c "'$DEVDASH' version 2>&1"
+assert_not_contains "deprecation notice stays off stdout" "deprecated" bash -c "'$DEVDASH' version 2>/dev/null"
+assert_contains "help points to Go CLI" "devdashproject/devdash-cli" bash -c "'$DEVDASH' help 2>&1"
